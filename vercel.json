@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/node",
+      "config": {
+        "buildCommand": "npm run build",
+        "outputDirectory": "build"
+      }
+    }
+  ],
+  "routes": [
+    { "handle": "filesystem" },
+    { "src": "/static/(.*)", "dest": "/static/$1" },
+    { "src": "/favicon.ico", "dest": "/favicon.ico" },
+    { "src": "/manifest.json", "dest": "/manifest.json" },
+    { "src": "/robots.txt", "dest": "/robots.txt" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ],
+  "env": {
+    "REACT_APP_SUPABASE_URL": "https://zampawknbmlrnhsaacqm.supabase.co",
+    "REACT_APP_SUPABASE_ANON_KEY": "@supabase-anon-key",
+    "GENERATE_SOURCEMAP": "false"
+  }
+} 
