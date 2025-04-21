@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About ExaminerPro</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#1E3A8A',
+            secondary: '#F3F4F6',
+            button: '#2563EB',
+          },
+          fontFamily: {
+            sans: ['Inter', 'Poppins', 'sans-serif'],
+          },
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-gray-50 font-sans">
+  <div class="min-h-screen flex flex-col">
+    <header class="bg-primary text-white py-4">
+      <div class="container mx-auto px-4 flex justify-between items-center">
+        <h1 class="text-2xl font-bold">ExaminerPro</h1>
+        <nav>
+          <ul class="flex space-x-4">
+            <li><a href="/" class="hover:text-secondary">Home</a></li>
+            <li><a href="/about.html" class="hover:text-secondary font-bold">About</a></li>
+            <li><a href="/" class="hover:text-secondary">Login</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main class="flex-grow container mx-auto px-4 py-8">
+      <section class="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-8">
+        <h2 class="text-3xl font-bold text-primary mb-6">About ExaminerPro</h2>
+        
+        <div class="prose lg:prose-lg">
+          <p class="mb-4">
+            ExaminerPro is a comprehensive examination management solution designed to streamline the process of creating, administering, and evaluating exams.
+          </p>
+          
+          <h3 class="text-xl font-semibold text-primary mt-6 mb-3">Our Mission</h3>
+          <p class="mb-4">
+            Our mission is to provide educational institutions and organizations with a powerful, user-friendly platform that simplifies the entire examination process, from creation to evaluation.
+          </p>
+          
+          <h3 class="text-xl font-semibold text-primary mt-6 mb-3">Key Features</h3>
+          <ul class="list-disc pl-6 mb-4 space-y-2">
+            <li>Secure user authentication system</li>
+            <li>Intuitive exam creation tools</li>
+            <li>Flexible question types and formats</li>
+            <li>Automated grading and evaluation</li>
+            <li>Comprehensive analytics and reporting</li>
+            <li>Mobile-responsive design for access anywhere</li>
+          </ul>
+          
+          <h3 class="text-xl font-semibold text-primary mt-6 mb-3">Why Choose ExaminerPro?</h3>
+          <p class="mb-4">
+            ExaminerPro stands out from other examination platforms due to its user-friendly interface, robust security features, and comprehensive analytics. Our platform is designed with both examiners and examinees in mind, ensuring a smooth experience for all users.
+          </p>
+          
+          <p class="mb-4">
+            Whether you're an educational institution, a corporate training department, or a certification body, ExaminerPro provides the tools you need to create, administer, and evaluate exams efficiently and effectively.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="bg-gray-800 text-white py-6">
+      <div class="container mx-auto px-4">
+        <div class="flex flex-col md:flex-row justify-between items-center">
+          <div class="mb-4 md:mb-0">
+            <p>© 2025 ExaminerPro. All Rights Reserved.</p>
+          </div>
+          <div>
+            <ul class="flex space-x-4">
+              <li><a href="#" class="hover:text-secondary">Privacy Policy</a></li>
+              <li><a href="#" class="hover:text-secondary">Terms of Service</a></li>
+              <li><a href="#" class="hover:text-secondary">Contact Us</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </footer>
+  </div>
+</body>
+</html> 

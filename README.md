@@ -1,70 +1,103 @@
-# Getting Started with Create React App
+# ExaminerPro Web Application
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+ExaminerPro is a comprehensive examination management solution designed for educational institutions to manage examiners and examination processes efficiently.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+- Add, edit, and manage examiners
+- Upload and manage examiner profile pictures
+- Search and filter examiner records
+- Dark/Light mode support
+- Responsive design for all devices
 
-### `npm start`
+## Tech Stack
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+- **Frontend**: React, Tailwind CSS, React Hook Form
+- **Backend**: Node.js, Express
+- **Database**: PostgreSQL via Supabase
+- **Authentication**: Supabase Auth
+- **Storage**: Supabase Storage
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Running the Application
 
-### `npm test`
+### Prerequisites
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+- Node.js and npm
 
-### `npm run build`
+### Environment Variables
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+Create a `.env` file in the root directory with the following variables:
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+```
+# Supabase
+SUPABASE_URL=your_supabase_url
+SUPABASE_ANON_KEY=your_supabase_anon_key
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+# JWT
+JWT_SECRET=your_jwt_secret_at_least_32_chars_long
 
-### `npm run eject`
+# SMTP (for authentication emails)
+GOTRUE_SMTP_HOST=your_smtp_host
+GOTRUE_SMTP_PORT=your_smtp_port
+GOTRUE_SMTP_USER=your_smtp_username
+GOTRUE_SMTP_PASS=your_smtp_password
+GOTRUE_SMTP_ADMIN_EMAIL=your_admin_email
+```
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+### Running the Application
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+1. Install dependencies:
+```bash
+npm install
+```
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+2. Start the development server:
+```bash
+npm start
+```
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+3. Access the application at http://localhost:3000
 
-## Learn More
+## Development
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+### Project Structure
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+```
+├── public/                 # Static assets
+├── src/                    # Frontend source code
+│   ├── components/         # React components
+│   ├── contexts/           # React context providers
+│   ├── lib/                # Utility libraries
+│   ├── pages/              # Page components
+│   ├── services/           # API service functions
+│   └── types/              # TypeScript type definitions
+├── server/                 # Backend source code
+│   ├── models/             # Data models
+│   ├── routes/             # API routes
+│   ├── uploads/            # Temporary file uploads
+│   └── server.js           # Express server entry point
+├── supabase/               # Supabase configuration
+│   ├── migrations/         # Database migrations
+│   └── seed.sql            # Seed data for development
+├── .env                    # Environment variables
+└── README.md               # Project documentation
+```
 
-### Code Splitting
+## API Documentation
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+### Examiner Endpoints
 
-### Analyzing the Bundle Size
+- `GET /api/examiners` - Get all examiners
+- `GET /api/examiners/:id` - Get examiner by ID
+- `POST /api/examiners` - Create a new examiner
+- `PUT /api/examiners/:id` - Update an examiner
+- `DELETE /api/examiners/:id` - Delete an examiner
+- `POST /api/examiners/:id/profile-picture` - Upload profile picture
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+## License
 
-### Making a Progressive Web App
+This project is proprietary software. All rights reserved.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+## Contact
 
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+For support or inquiries, please contact the project maintainer.
