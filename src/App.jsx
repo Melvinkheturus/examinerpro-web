@@ -2,8 +2,10 @@ import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import ExaminerDetail from './pages/ExaminerDetail';
+import ExaminerHistory from './pages/ExaminerHistory';
 import AddExaminer from './pages/AddExaminer';
 import PDFArchive from './pages/PDFArchive';
 import CalculationArchive from './pages/CalculationArchive';
@@ -58,125 +60,49 @@ function App() {
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/oauth-callback" element={<OAuthCallback />} />
             
-            {/* Protected routes */}
-            <Route path="/" element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            } />
-            
-            {/* Chief Examiner Profile Route */}
-            <Route path="/profile" element={
-              <ProtectedRoute>
-                <ChiefExaminerProfile />
-              </ProtectedRoute>
-            } />
-            
-            <Route path="/add-examiner" element={
-              <ProtectedRoute>
-                <AddExaminer />
-              </ProtectedRoute>
-            } />
-            
-            <Route path="/examiners/add" element={
-              <ProtectedRoute>
-                <AddExaminer />
-              </ProtectedRoute>
-            } />
-            
-            <Route path="/examiners/new" element={
-              <ProtectedRoute>
-                <Navigate to="/examiners/add" />
-              </ProtectedRoute>
-            } />
-            
-            <Route path="/examiners/edit/:id" element={
-              <ProtectedRoute>
-                <AddExaminer />
-              </ProtectedRoute>
-            } />
-            
-            <Route path="/examiners/:id" element={
-              <ProtectedRoute>
-                <ExaminerDetail />
-              </ProtectedRoute>
-            } />
-            
-            {/* Consolidated Calculations route - redirect to calculation-archive */}
-            <Route path="/calculations" element={
-              <ProtectedRoute>
-                <Navigate to="/calculation-archive" replace />
-              </ProtectedRoute>
-            } />
-            
-            {/* Maintain original calculation detail routes */}
-            <Route path="/calculations/new/:id" element={
-              <ProtectedRoute>
-                <CalculationPage />
-              </ProtectedRoute>
-            } />
-            
-            <Route path="/calculations/view/:id" element={
-              <ProtectedRoute>
-                <CalculationDetail />
-              </ProtectedRoute>
-            } />
-            
-            <Route path="/staff-details/:id" element={
-              <ProtectedRoute>
-                <StaffDetailsPage />
-              </ProtectedRoute>
-            } />
-            
-            {/* Consolidated PDF Archive route */}
-            <Route path="/pdf-archive" element={
-              <ProtectedRoute>
-                <PDFArchive />
-              </ProtectedRoute>
-            } />
-            
-            {/* Consolidated Calculation Archive route */}
-            <Route path="/calculation-archive" element={
-              <ProtectedRoute>
-                <CalculationArchive />
-              </ProtectedRoute>
-            } />
-            
-            <Route path="/settings" element={
-              <ProtectedRoute>
-                <Settings />
-              </ProtectedRoute>
-            } />
-            
-            {/* Alternative route for settings that uses the same component */}
-            <Route path="/settings-page" element={
-              <ProtectedRoute>
-                <Settings />
-              </ProtectedRoute>
-            } />
-            
-            {/* Legacy redirects to maintain backward compatibility */}
-            <Route path="/history" element={
-              <ProtectedRoute>
-                <Navigate to="/pdf-archive" replace />
-              </ProtectedRoute>
-            } />
-            
-            <Route path="/calculation-history" element={
-              <ProtectedRoute>
-                <Navigate to="/calculation-archive" replace />
-              </ProtectedRoute>
-            } />
-            
-            <Route path="/pdf-history" element={
-              <ProtectedRoute>
-                <Navigate to="/pdf-archive" replace />
-              </ProtectedRoute>
-            } />
-            
-            {/* Redirect routes for old form paths */}
-            <Route path="/simple-form" element={<Navigate to="/add-examiner" replace />} />
-            <Route path="/standalone-form" element={<Navigate to="/add-examiner" replace />} />
+            {/* Protected routes with Layout */}
+            <Route 
+              element={
+                <ProtectedRoute>
+                  <Layout />
+                </ProtectedRoute>
+              }
+            >
+              {/* Dashboard */}
+              <Route path="/" element={<Dashboard />} />
+              
+              {/* Chief Examiner Profile */}
+              <Route path="/profile" element={<ChiefExaminerProfile />} />
+              
+              {/* Examiner routes */}
+              <Route path="/add-examiner" element={<AddExaminer />} />
+              <Route path="/examiners/add" element={<AddExaminer />} />
+              <Route path="/examiners/edit/:id" element={<AddExaminer />} />
+              <Route path="/examiners/:id" element={<ExaminerDetail />} />
+              <Route path="/examiner/:id/history" element={<ExaminerHistory />} />
+              
+              {/* Calculation routes */}
+              <Route path="/calculations/new/:id" element={<CalculationPage />} />
+              <Route path="/calculations/view/:id" element={<CalculationDetail />} />
+              <Route path="/staff-details/:id" element={<StaffDetailsPage />} />
+              <Route path="/calculation-archive" element={<CalculationArchive />} />
+              
+              {/* PDF Archive */}
+              <Route path="/pdf-archive" element={<PDFArchive />} />
+              
+              {/* Settings */}
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/settings-page" element={<Settings />} />
+              
+              {/* Redirects */}
+              <Route path="/examiners/new" element={<Navigate to="/examiners/add" />} />
+              <Route path="/calculations" element={<Navigate to="/calculation-archive" />} />
+              <Route path="/history" element={<Navigate to="/pdf-archive" />} />
+              <Route path="/calculation-history" element={<Navigate to="/calculation-archive" />} />
+              <Route path="/pdf-history" element={<Navigate to="/pdf-archive" />} />
+              <Route path="/simple-form" element={<Navigate to="/add-examiner" />} />
+              <Route path="/standalone-form" element={<Navigate to="/add-examiner" />} />
+            </Route>
             
             {/* Catch-all route */}
             <Route path="*" element={<Navigate to="/" replace />} />

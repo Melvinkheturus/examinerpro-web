@@ -1,14 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
 import { IllustratedIcon } from './IllustratedIcons';
 import { useAuth } from '../contexts/AuthContext';
 
-const Sidebar = ({ className = '' }) => {
+const Sidebar = ({ className = '', onCollapseChange, initialCollapsed = false }) => {
   const location = useLocation();
   const { isDarkMode } = useTheme();
   const { user } = useAuth();
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(initialCollapsed);
+  
+  // Effect to handle initialCollapsed changes
+  useEffect(() => {
+    setIsCollapsed(initialCollapsed);
+    // Notify parent component about initial collapse state
+    if (onCollapseChange) {
+      onCollapseChange(initialCollapsed);
+    }
+  }, [initialCollapsed, onCollapseChange]);
   
   // Navigation items - separated profile to be above dashboard as requested
   const navItems = [
@@ -26,7 +35,13 @@ const Sidebar = ({ className = '' }) => {
   
   // Toggle sidebar collapse
   const toggleCollapse = () => {
-    setIsCollapsed(!isCollapsed);
+    const newCollapsedState = !isCollapsed;
+    setIsCollapsed(newCollapsedState);
+    
+    // Notify parent component about collapse state change
+    if (onCollapseChange) {
+      onCollapseChange(newCollapsedState);
+    }
   };
 
   // Check if path is active - improved to handle nested routes
@@ -84,7 +99,7 @@ const Sidebar = ({ className = '' }) => {
   const hoverClass = isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100';
 
   return (
-    <div className={`${isCollapsed ? 'w-16' : 'w-56'} flex-shrink-0 ${sidebarBgColor} border-r ${borderColor} flex flex-col shadow-md transition-all duration-300 ${className}`}>
+    <div className={`${isCollapsed ? 'w-16' : 'w-56'} h-full flex-shrink-0 ${sidebarBgColor} border-r ${borderColor} flex flex-col shadow-md transition-all duration-300 ${className}`}>
       {/* Logo and Collapse Button */}
       <div className="px-3 py-4 flex items-center justify-between">
         <div className="flex items-center">
@@ -174,76 +189,82 @@ const Sidebar = ({ className = '' }) => {
         </Link>
       </div>
       
-      {/* Divider After Profile - AS REQUESTED */}
+      {/* Divider After Profile */}
       <div className={`border-b ${borderColor} ${isCollapsed ? 'mx-1' : 'mx-4'} my-2`}></div>
       
-      {/* Navigation - MOVED BELOW PROFILE */}
-      <nav className={`flex-1 ${isCollapsed ? 'px-1' : 'px-4'} space-y-1`}>
-        {navItems.map(item => (
+      {/* Main Navigation Section - Using flex-grow to push the Settings to bottom */}
+      <div className="flex flex-col h-full overflow-y-auto">
+        {/* Navigation Links */}
+        <nav className={`${isCollapsed ? 'px-1' : 'px-4'} space-y-1`}>
+          {navItems.map(item => (
+            <Link
+              key={item.path}
+              to={item.path}
+              className={`flex items-center ${isCollapsed ? 'justify-center' : 'space-x-2'} px-2 py-2 rounded-md transition-colors duration-200 ${
+                isActive(item.path)
+                  ? activeClass
+                  : `${textColor} ${hoverClass}`
+              }`}
+              title={isCollapsed ? item.label : ''}
+            >
+              {renderIcon(item.icon)}
+              {!isCollapsed && <span className="text-sm">{item.label}</span>}
+            </Link>
+          ))}
+          
+          {/* Divider before Master History section */}
+          <div className={`border-b ${borderColor} ${isCollapsed ? 'mx-1' : 'mx-0'} my-3`}></div>
+          
+          {/* Master History Title */}
+          {!isCollapsed && (
+            <div className="px-2 py-1">
+              <span className={`text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                Master History
+              </span>
+            </div>
+          )}
+          
+          {/* Divider after Master History title */}
+          <div className={`border-b ${borderColor} ${isCollapsed ? 'mx-1' : 'mx-0'} my-2`}></div>
+          
+          {/* History Navigation Items */}
+          {historyItems.map(item => (
+            <Link
+              key={item.path}
+              to={item.path}
+              className={`flex items-center ${isCollapsed ? 'justify-center' : 'space-x-2'} px-2 py-2 rounded-md transition-colors duration-200 ${
+                isActive(item.path)
+                  ? activeClass
+                  : `${textColor} ${hoverClass}`
+              }`}
+              title={isCollapsed ? item.label : ''}
+            >
+              {renderIcon(item.icon)}
+              {!isCollapsed && <span className="text-sm whitespace-nowrap">{item.label}</span>}
+            </Link>
+          ))}
+        </nav>
+        
+        {/* Push settings to the bottom with flex-grow */}
+        <div className="flex-grow"></div>
+        
+        {/* Settings (at bottom) */}
+        <div className={`${isCollapsed ? 'px-1' : 'px-4'} py-4`}>
+          {/* Border above settings */}
+          <div className={`border-t ${borderColor} mb-3`}></div>
           <Link
-            key={item.path}
-            to={item.path}
+            to={settingsItem.path}
             className={`flex items-center ${isCollapsed ? 'justify-center' : 'space-x-2'} px-2 py-2 rounded-md transition-colors duration-200 ${
-              isActive(item.path)
+              isActive(settingsItem.path)
                 ? activeClass
                 : `${textColor} ${hoverClass}`
             }`}
-            title={isCollapsed ? item.label : ''}
+            title={isCollapsed ? settingsItem.label : ''}
           >
-            {renderIcon(item.icon)}
-            {!isCollapsed && <span className="text-sm">{item.label}</span>}
+            {renderIcon(settingsItem.icon)}
+            {!isCollapsed && <span className="text-sm">{settingsItem.label}</span>}
           </Link>
-        ))}
-        
-        {/* Divider before Master History section */}
-        <div className={`border-b ${borderColor} ${isCollapsed ? 'mx-1' : 'mx-0'} my-3`}></div>
-        
-        {/* Master History Title */}
-        {!isCollapsed && (
-          <div className="px-2 py-1">
-            <span className={`text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-              Master History
-            </span>
-          </div>
-        )}
-        
-        {/* Divider after Master History title */}
-        <div className={`border-b ${borderColor} ${isCollapsed ? 'mx-1' : 'mx-0'} my-2`}></div>
-        
-        {/* History Navigation Items */}
-        {historyItems.map(item => (
-          <Link
-            key={item.path}
-            to={item.path}
-            className={`flex items-center ${isCollapsed ? 'justify-center' : 'space-x-2'} px-2 py-2 rounded-md transition-colors duration-200 ${
-              isActive(item.path)
-                ? activeClass
-                : `${textColor} ${hoverClass}`
-            }`}
-            title={isCollapsed ? item.label : ''}
-          >
-            {renderIcon(item.icon)}
-            {!isCollapsed && <span className="text-sm whitespace-nowrap">{item.label}</span>}
-          </Link>
-        ))}
-      </nav>
-      
-      {/* Settings (at bottom) */}
-      <div className={`${isCollapsed ? 'px-1' : 'px-4'} py-4 mt-auto`}>
-        {/* Border above settings */}
-        <div className={`border-t ${borderColor} mb-3`}></div>
-        <Link
-          to={settingsItem.path}
-          className={`flex items-center ${isCollapsed ? 'justify-center' : 'space-x-2'} px-2 py-2 rounded-md transition-colors duration-200 ${
-            isActive(settingsItem.path)
-              ? activeClass
-              : `${textColor} ${hoverClass}`
-          }`}
-          title={isCollapsed ? settingsItem.label : ''}
-        >
-          {renderIcon(settingsItem.icon)}
-          {!isCollapsed && <span className="text-sm">{settingsItem.label}</span>}
-        </Link>
+        </div>
       </div>
     </div>
   );

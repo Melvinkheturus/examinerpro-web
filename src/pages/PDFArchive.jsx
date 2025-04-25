@@ -396,63 +396,64 @@ const PDFArchive = () => {
 
   return (
     <HistoryLayout>
-      <div className="max-w-4xl mx-auto px-4 py-6 h-full flex flex-col">
-        {/* Header with Bulk Actions */}
-        <div className="mb-6">
-          <div className="flex justify-between items-center mb-4">
-            <div>
-              <h1 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'} flex items-center`}>
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-7 h-7 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                </svg>
-                PDF Archives
-              </h1>
-              <p className={`mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                Access and manage your generated salary reports
-              </p>
-            </div>
-            <div className="flex space-x-2">
-              {selectedDocs.length > 0 && (
-                <div className="flex space-x-2">
-                  <button
-                    onClick={handleBulkDownload}
-                    className={`flex items-center px-3 py-2 rounded-md text-sm ${
-                      isDarkMode ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                    Download ({selectedDocs.length})
-                  </button>
-                  <button
-                    onClick={handleBulkDelete}
-                    className="flex items-center px-3 py-2 rounded-md text-sm bg-red-600 text-white hover:bg-red-700"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                    Delete ({selectedDocs.length})
-                  </button>
-                </div>
-              )}
-            </div>
+      {/* Header with Bulk Actions */}
+      <div className="mb-6 px-6 pt-6">
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h1 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'} flex items-center`}>
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-7 h-7 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              </svg>
+              PDF Archives
+            </h1>
+            <p className={`mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              Access and manage your generated salary reports
+            </p>
           </div>
+          <div className="flex space-x-2">
+            {selectedDocs.length > 0 && (
+              <div className="flex space-x-2">
+                <button
+                  onClick={handleBulkDownload}
+                  className={`flex items-center px-3 py-2 rounded-md text-sm ${
+                    isDarkMode ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Download ({selectedDocs.length})
+                </button>
+                <button
+                  onClick={handleBulkDelete}
+                  className="flex items-center px-3 py-2 rounded-md text-sm bg-red-600 text-white hover:bg-red-700"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Delete ({selectedDocs.length})
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      
+        {/* Loading State */}
+        {loading && (
+          <div className="flex justify-center items-center py-20">
+            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-500"></div>
+          </div>
+        )}
         
-          {/* Loading State */}
-          {loading && (
-            <div className="flex justify-center items-center py-20">
-              <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-500"></div>
-            </div>
-          )}
-          
-          {/* Error State */}
-          {error && (
-            <div className={`mb-6 p-4 rounded-md bg-red-50 border border-red-200 text-red-600 ${isDarkMode ? 'bg-red-900/20 border-red-800 text-red-400' : ''}`}>
-              {error}
-            </div>
-          )}
-        
+        {/* Error State */}
+        {error && (
+          <div className={`mb-6 p-4 rounded-md bg-red-50 border border-red-200 text-red-600 ${isDarkMode ? 'bg-red-900/20 border-red-800 text-red-400' : ''}`}>
+            {error}
+          </div>
+        )}
+
+        {/* Content area */}
+        <div className="px-6 pb-6">
           {/* Filters */}
           <div className={`${cardBg} shadow rounded-lg mb-4 p-4`}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
@@ -539,49 +540,49 @@ const PDFArchive = () => {
               </div>
             </div>
           </div>
-        </div>
-        
-        {/* Empty State */}
-        {!loading && !error && filteredDocs.length === 0 && (
-          <div className={`${cardBg} rounded-lg shadow-md p-8 text-center`}>
-            <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-            </svg>
-            <h3 className={`mt-2 text-sm font-medium ${textColor}`}>No documents found</h3>
-            <p className={`mt-1 text-sm ${secondaryText}`}>
-              {searchQuery 
-                ? 'No documents match your search criteria.' 
-                : 'No PDF documents are available in the archive.'}
-            </p>
-          </div>
-        )}
-        
-        {/* Content Based on View Mode */}
-        {!loading && !error && filteredDocs.length > 0 && (
-          <>
-            {viewMode === 'grid' ? 
-              Object.entries(groupDocuments(filteredDocs)).map(([group, docs]) => (
-                <div key={group} className="mb-6">
-                  {groupBy !== 'none' && (
-                    <h2 className={`text-lg font-semibold ${textColor} mb-3 px-1`}>{group}</h2>
-                  )}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {renderDocumentGrid(docs)}
+          
+          {/* Empty State */}
+          {!loading && !error && filteredDocs.length === 0 && (
+            <div className={`${cardBg} rounded-lg shadow-md p-8 text-center`}>
+              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+              </svg>
+              <h3 className={`mt-2 text-sm font-medium ${textColor}`}>No documents found</h3>
+              <p className={`mt-1 text-sm ${secondaryText}`}>
+                {searchQuery 
+                  ? 'No documents match your search criteria.' 
+                  : 'No PDF documents are available in the archive.'}
+              </p>
+            </div>
+          )}
+          
+          {/* Content Based on View Mode */}
+          {!loading && !error && filteredDocs.length > 0 && (
+            <>
+              {viewMode === 'grid' ? 
+                Object.entries(groupDocuments(filteredDocs)).map(([group, docs]) => (
+                  <div key={group} className="mb-6">
+                    {groupBy !== 'none' && (
+                      <h2 className={`text-lg font-semibold ${textColor} mb-3 px-1`}>{group}</h2>
+                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {renderDocumentGrid(docs)}
+                    </div>
                   </div>
-                </div>
-              ))
-              : 
-              Object.entries(groupDocuments(filteredDocs)).map(([group, docs]) => (
-                <div key={group} className="mb-6">
-                  {groupBy !== 'none' && (
-                    <h2 className={`text-lg font-semibold ${textColor} mb-3 px-1`}>{group}</h2>
-                  )}
-                  {renderDocumentList(docs)}
-                </div>
-              ))
-            }
-          </>
-        )}
+                ))
+                : 
+                Object.entries(groupDocuments(filteredDocs)).map(([group, docs]) => (
+                  <div key={group} className="mb-6">
+                    {groupBy !== 'none' && (
+                      <h2 className={`text-lg font-semibold ${textColor} mb-3 px-1`}>{group}</h2>
+                    )}
+                    {renderDocumentList(docs)}
+                  </div>
+                ))
+              }
+            </>
+          )}
+        </div>
       </div>
     </HistoryLayout>
   );

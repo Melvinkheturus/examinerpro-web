@@ -1,13 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import calculationService from '../services/calculationService';
+import { toast } from 'react-hot-toast';
 import { useTheme } from '../contexts/ThemeContext';
-import toast from 'react-hot-toast';
-import HistoryLayout from './HistoryLayout';
+import calculationService from '../services/calculationService';
 import { formatDate } from '../utils/dateUtils';
 import { supabase } from '../lib/supabase';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import HistoryLayout from './HistoryLayout';
 
 const CalculationArchive = () => {
   const { isDarkMode } = useTheme();
@@ -34,8 +32,6 @@ const CalculationArchive = () => {
   const [dateRangeOption, setDateRangeOption] = useState('all');
   const [showDateRangePicker, setShowDateRangePicker] = useState(false);
   const [showExportDropdown, setShowExportDropdown] = useState(false);
-  // eslint-disable-next-line no-unused-vars
-  const [departmentFilter, setDepartmentFilter] = useState('All Departments');
 
   // Theme-based styling
   const cardBg = isDarkMode ? 'bg-gray-800' : 'bg-white';
@@ -142,12 +138,12 @@ const CalculationArchive = () => {
   const handleMergedReportsExport = async () => {
     // Create a persistent toast that we can update
     const toastId = toast.loading('Preparing merged reports for download...');
-    
+      
     try {
       // If no calculations are selected, export all displayed calculations
-      const calculationsToExport = selectedCalculations.length > 0 
+      const calculationsToExport = selectedCalculations.length > 0
         ? selectedCalculations 
-        : filteredCalculations.map(calc => calc.id);
+        : filteredCalculations.slice(0, 10).map(calc => calc.id); // Limit to first 10 if none selected
       
       if (calculationsToExport.length === 0) {
         toast.error('No calculations available to export', { id: toastId });
@@ -172,132 +168,77 @@ const CalculationArchive = () => {
       // Update toast with progress
       toast.loading('Fetching calculation data...', { id: toastId });
 
-      // Prepare date range if filtering by date
-      let requestBody = {
-        calculation_ids: calculationsToExport
-      };
-      
-      if (dateFilter.from && dateFilter.to) {
-        requestBody.start_date = dateFilter.from;
-        requestBody.end_date = dateFilter.to;
-      }
-      
-      // Add department filter if available
-      if (departmentFilter && departmentFilter !== 'All Departments') {
-        requestBody.department = departmentFilter;
-      }
-      
-      // Debug log the request
-      console.log('Edge function request:', { 
-        url: 'https://zampawknbmlrnhsaacqm.supabase.co/functions/v1/generate-merged-pdf',
-        body: requestBody 
-      });
-      
-      // Call the Supabase Edge Function
-      const res = await fetch('https://zampawknbmlrnhsaacqm.supabase.co/functions/v1/generate-merged-pdf', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify(requestBody)
-      });
-      
-      // Update toast with progress
-      toast.loading('Processing server response...', { id: toastId });
-      
-      // Check for non-OK response
-      if (!res.ok) {
-        const errorText = await res.text();
-        console.error('Edge function error response:', { 
-          status: res.status, 
-          statusText: res.statusText,
-          body: errorText
-        });
-        
-        let errorMsg;
-        try {
-          const errorData = JSON.parse(errorText);
-          errorMsg = errorData.error || `Server responded with status: ${res.status}`;
-        } catch (e) {
-          errorMsg = `Server responded with status: ${res.status}`;
-        }
-        
-        throw new Error(errorMsg);
-      }
-      
-      // Parse the response data
-      const responseText = await res.text();
-      console.log('Edge function raw response:', responseText.substring(0, 200) + '...');
-      
-      // Handle empty response
-      if (!responseText || responseText.trim() === '') {
-        toast.error('Empty response from server', { id: toastId });
-        return;
-      }
-      
-      // Parse JSON response
-      let result;
+      // Fetch calculations directly from Supabase instead of using the edge function
+      let calculationsData = [];
       try {
-        result = JSON.parse(responseText);
-      } catch (error) {
-        console.error('Error parsing JSON response:', error);
-        toast.error('Invalid response format from server', { id: toastId });
-        return;
-      }
-      
-      console.log('Edge function parsed response:', result);
-      
-      // Extract calculations from the new response structure
-      let calculations = [];
-      
-      // Handle the new structured response format
-      if (result && result.status === "success" && Array.isArray(result.calculations)) {
-        calculations = result.calculations;
-      } 
-      // Handle legacy or direct array response
-      else if (Array.isArray(result)) {
-        calculations = result;
-      }
-      // Handle single calculation response
-      else if (result && typeof result === 'object' && (result.id || result.calculation_id)) {
-        calculations = [result];
-      }
-      else {
-        console.error('Unexpected response structure:', result);
-        toast.error('Invalid response structure from server', { id: toastId });
-        return;
-      }
-      
-      // Ensure all calculations have proper examiner data
-      calculations = calculations.map(calc => {
-        // Extract examiner info safely to ensure complete data
-        const examinerData = calc.examiners || calc.examiner || calc.examiner_data || {};
-        const uniqueId = Math.random().toString(36).substr(2, 9);
+        const { data, error } = await supabase
+          .from('calculation_documents')
+          .select(`
+            *,
+            examiners:examiner_id (
+              id,
+              full_name,
+              examiner_id,
+              department
+            )
+          `)
+          .in('id', calculationsToExport);
+
+        if (error) throw error;
         
-        // Make sure all required fields have values
-        calc.examiner_name = examinerData.full_name || examinerData.name || calc.examiner_name || calc.name || 'Unknown Examiner';
-        calc.examiner_id = examinerData.examiner_id || examinerData.id || calc.examiner_id || calc.id || `unknown-${uniqueId}`;
-        calc.department = examinerData.department || calc.department || 'General Department';
+        // Process calculations with examiner data
+        calculationsData = data.map(calc => ({
+          ...calc,
+          examiner: calc.examiners,
+          examiner_name: calc.examiners?.full_name || 'Unknown Examiner'
+        }));
         
-        // Also ensure calculation has total_papers, total_amount, etc.
-        calc.total_papers = Number(calc.total_papers || calc.papers_evaluated || 0);
-        calc.total_amount = Number(calc.total_amount || calc.final_amount || calc.amount || 0);
-        calc.total_days = Number(calc.total_days || (calc.evaluation_days?.length || 0));
-        calc.total_staff = Number(calc.total_staff || calc.staff_count || 1);
-        
-        return calc;
-      });
-      
-      // Validate calculations - ensure we have data to work with
-      if (calculations.length === 0) {
-        console.error('No calculation data found in the response');
-        toast.error('No calculation data found for the selected criteria', { id: toastId });
+        // Fetch calculation_days for these calculations
+        for (const calc of calculationsData) {
+          try {
+            // First get calculation_days that link to this calculation
+            const { data: calcDays, error: calcDaysError } = await supabase
+              .from('calculation_days')
+              .select(`
+                id,
+                evaluation_day_id
+              `)
+              .eq('calculation_id', calc.id);
+              
+            if (calcDaysError) {
+              console.warn(`Error getting calculation days for calculation ${calc.id}:`, calcDaysError);
+              continue;
+            }
+            
+            calc.evaluationDays = [];
+            
+            if (calcDays && calcDays.length > 0) {
+              // Get evaluation days data
+              const evalDayIds = calcDays.map(day => day.evaluation_day_id);
+              const { data: evalDays, error: evalDaysError } = await supabase
+                .from('evaluation_days')
+                .select('*')
+                .in('id', evalDayIds);
+                
+              if (evalDaysError) {
+                console.warn(`Error getting evaluation days for calculation ${calc.id}:`, evalDaysError);
+                continue;
+              }
+              
+              calc.evaluationDays = evalDays || [];
+            }
+          } catch (daysError) {
+            console.error(`Error processing days for calculation ${calc.id}:`, daysError);
+          }
+        }
+      } catch (fetchError) {
+        console.error('Error fetching calculation data:', fetchError);
+        toast.error(`Failed to fetch calculation data: ${fetchError.message || 'Unknown error'}`, { id: toastId });
         return;
       }
       
       // Check if calculations contain basic expected data
-      const validCalculations = calculations.filter(calc => {
+      const validCalculations = calculationsData.filter(calc => {
         const hasExaminer = 
           (calc.examiner && (calc.examiner.name || calc.examiner.full_name)) || 
           calc.examiner_name;
@@ -310,16 +251,17 @@ const CalculationArchive = () => {
         return hasExaminer && hasPapers;
       });
       
-      if (validCalculations.length === 0 && calculations.length > 0) {
-        console.warn('Found calculations but none had valid examiner and paper data', calculations);
+      if (validCalculations.length === 0 && calculationsData.length > 0) {
+        console.warn('Found calculations but none had valid examiner and paper data', calculationsData);
         toast.error('Calculations found but they may be missing key data', { id: toastId });
+        return;
       }
       
       // Update toast with progress
       toast.loading('Generating PDF from calculation data...', { id: toastId });
       
       // Generate HTML report with the enriched data
-      const htmlContent = generateMergedReportHTML(calculations);
+      const htmlContent = generateMergedReportHTML(validCalculations);
       
       // Update toast message
       toast.loading('Converting to PDF...', { id: toastId });
@@ -334,69 +276,49 @@ const CalculationArchive = () => {
         container.style.width = '210mm'; // A4 width
         document.body.appendChild(container);
         
-        // Generate PDF
+        // Generate PDF using @react-pdf/renderer
         const generatePDF = async () => {
           try {
-            // Create a PDF document with A4 size
-            const pdf = new jsPDF({
-              orientation: 'portrait',
-              unit: 'mm',
-              format: 'a4'
-            });
+            // Update toast
+            toast.loading('Creating PDF document...', { id: toastId });
             
-            // Get all page section elements
-            const sections = container.querySelectorAll('.section');
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            
-            // Process each section as potential page
-            for (let i = 0; i < sections.length; i++) {
-              // Add a new page for sections after the first one
-              if (i > 0) {
-                pdf.addPage();
+            // Use the already defined calculationsToExport from the outer function scope
+            if (calculationsToExport && calculationsToExport.length > 0) {
+              // Since we can't do proper merging in one PDF with @react-pdf/renderer yet,
+              // we'll create individual PDFs for each calculation (up to 5 to avoid too many tabs)
+              const processedCalculations = calculationsToExport.slice(0, 5);
+              
+              for (const calculationId of processedCalculations) {
+                await calculationService.generateCalculationPDF(
+                  calculationId, 
+                  `calculation_${calculationId}.pdf`
+                );
               }
               
-              const section = sections[i];
+              // Clean up
+              document.body.removeChild(container);
               
-              try {
-                // Convert section to canvas
-                const canvas = await html2canvas(section, {
-                  scale: 2,
-                  useCORS: true,
-                  letterRendering: true,
-                  logging: false // Turn off verbose logging
-                });
-                
-                // Calculate proper scaling to fit in PDF page
-                const imgWidth = pdfWidth - 20; // 10mm margins on each side
-                const imgHeight = (canvas.height * imgWidth) / canvas.width;
-                
-                // Add the image to the PDF
-                const imgData = canvas.toDataURL('image/jpeg', 0.95);
-                
-                // Add image centered on page with margins
-                pdf.addImage(imgData, 'JPEG', 10, 10, imgWidth, imgHeight);
-                
-              } catch (canvasError) {
-                console.error(`Error rendering section ${i}:`, canvasError);
-                // Continue with other sections
-              }
+              // Update toast
+              toast.dismiss(toastId);
+              toast.success(`Generated ${processedCalculations.length} PDF reports successfully`);
+            } else {
+              // Clean up
+              document.body.removeChild(container);
+              
+              toast.error('No calculations selected for export', { id: toastId });
+              throw new Error('No calculations selected');
             }
-            
-            // Save the PDF
-            pdf.save(`ExaminerPro_Merged_Report_${new Date().toISOString().split('T')[0]}.pdf`);
-            
-            // Clean up
-            document.body.removeChild(container);
-            
-            // Show success message
-            toast.success(`${calculations.length} reports merged and downloaded as PDF`, { id: toastId });
           } catch (pdfError) {
             console.error('Error generating PDF:', pdfError);
-            throw pdfError; // Re-throw to trigger fallback
+            // Clean up on error
+            if (container.parentNode) {
+              document.body.removeChild(container);
+            }
+            throw pdfError;
           }
         };
         
-        // Execute PDF generation with fallback
+        // Execute PDF generation
         generatePDF().catch(error => {
           console.error('Falling back to HTML download:', error);
           
@@ -449,7 +371,7 @@ const CalculationArchive = () => {
       toast.error('Failed to export merged reports: ' + (error.message || 'Unknown error'), { id: toastId });
     }
   };
-  
+
   // Function to generate merged report HTML
   const generateMergedReportHTML = (calculationData) => {
     // Debug the full calculation data to understand structure
@@ -475,21 +397,6 @@ const CalculationArchive = () => {
       }
     };
     
-    // Improved function to extract examiner information consistently
-    const getExaminerInfo = (calc) => {
-      // Extract examiner info safely
-      const examinerData = calc.examiners || calc.examiner || calc.examiner_data || {};
-      const examinerName = examinerData.full_name || examinerData.name || calc.examiner_name || calc.name || 'Unknown Examiner';
-      const examinerId = examinerData.examiner_id || examinerData.id || calc.examiner_id || calc.id || `unknown-${Math.random().toString(36).substr(2, 9)}`;
-      const department = examinerData.department || calc.department || 'General';
-      
-      return {
-        name: examinerName,
-        id: examinerId,
-        department: department
-      };
-    };
-    
     // Group calculations by examiner
     const examinerGroups = {};
     let totalExaminers = 0;
@@ -502,8 +409,20 @@ const CalculationArchive = () => {
       // Debug individual calculation
       console.log('Processing calculation:', calc.id || 'unknown id', calc);
       
-      // Extract examiner information using our improved helper
-      const { name, id, department } = getExaminerInfo(calc);
+      // Handle nested examiner information
+      let examinerData = {};
+      
+      // Extract examiner data from various possible paths
+      if (calc.examiner && typeof calc.examiner === 'object') {
+        examinerData = calc.examiner;
+      } else if (calc.examiner_data && typeof calc.examiner_data === 'object') {
+        examinerData = calc.examiner_data;
+      }
+      
+      // Extract basic examiner info
+      const extractedName = examinerData.full_name || examinerData.name || calc.examiner_name || calc.name;
+      const extractedExaminerId = examinerData.id || examinerData.examiner_id || calc.examiner_id || calc.id;
+      const extractedDepartment = examinerData.department || calc.department || 'General';
       
       // Extract financial values
       const extractedTotalPapers = Number(calc.total_papers || calc.papers_evaluated || 0);
@@ -514,9 +433,9 @@ const CalculationArchive = () => {
       
       // Debug the extracted values
       console.log('Extracted values:', {
-        name,
-        id,
-        department,
+        name: extractedName,
+        id: extractedExaminerId,
+        department: extractedDepartment,
         papers: extractedTotalPapers,
         amount: extractedTotalAmount
       });
@@ -524,9 +443,9 @@ const CalculationArchive = () => {
       return {
         ...calc,
         extracted: {
-          name,
-          id,
-          department,
+          name: extractedName,
+          id: extractedExaminerId,
+          department: extractedDepartment,
           papers: extractedTotalPapers,
           amount: extractedTotalAmount,
           baseAmount: extractedBaseAmount,
@@ -539,9 +458,9 @@ const CalculationArchive = () => {
     // Process calculations and group by examiner
     processedCalculations.forEach(calc => {
       // Use extracted values
-      const examinerId = safe(calc.extracted.id);
-      const examinerName = safe(calc.extracted.name);
-      const department = safe(calc.extracted.department);
+      const examinerId = safe(calc.extracted.id, `unknown-${Math.random().toString(36).substr(2, 9)}`);
+      const examinerName = safe(calc.extracted.name, "Unknown Examiner");
+      const department = safe(calc.extracted.department, "Unassigned");
       
       // Extract base calculation details
       const papersEvaluated = calc.extracted.papers;
@@ -569,42 +488,8 @@ const CalculationArchive = () => {
       let evaluationDays = [];
       let totalDays = 0;
       
-      // First try to extract from the nested structure
+      // First try to extract from calculation_days array
       if (calc.calculation_days && Array.isArray(calc.calculation_days) && calc.calculation_days.length > 0) {
-        console.log('Processing from calculation_days:', calc.calculation_days);
-        
-        calc.calculation_days.forEach(cDay => {
-          // Handle both evaluation_day (singular) and evaluation_days (plural)
-          const evalDaysArray = [];
-          
-          if (cDay.evaluation_days && Array.isArray(cDay.evaluation_days)) {
-            evalDaysArray.push(...cDay.evaluation_days);
-          } else if (cDay.evaluation_day) {
-            evalDaysArray.push(cDay.evaluation_day);
-          }
-          
-          evalDaysArray.forEach(evalDay => {
-            // Get staff evaluations from either path
-            const staffEvals = evalDay.staff_evaluations || cDay.staff_evaluations || [];
-            
-            totalDays++;
-            
-            evaluationDays.push({
-              date: evalDay.evaluation_date || evalDay.date || cDay.date,
-              staff_count: staffEvals.length || 1,
-              total_papers: staffEvals.reduce(
-                (sum, staff) => sum + Number(staff.papers_evaluated || staff.papers || 0), 0
-              ),
-              staff: staffEvals.map(staff => ({
-                name: safe(staff.staff_name || staff.name, `Staff ${staffEvals.indexOf(staff) + 1}`),
-                papers: Number(staff.papers_evaluated || staff.papers || 0)
-              }))
-            });
-          });
-        });
-      } 
-      // Then try to extract from calculation_days array (previous structure)
-      else if (calc.calculation_days && Array.isArray(calc.calculation_days) && calc.calculation_days.length > 0) {
         // New structure: calculation_days -> evaluation_day -> staff_evaluations
         evaluationDays = calc.calculation_days.map(day => {
           console.log('Processing day from calculation_days:', day);
@@ -637,16 +522,14 @@ const CalculationArchive = () => {
             }))
           };
         });
-      }
-      // Try evaluation_days (legacy structure)
+      } 
+      // Then try evaluation_days (legacy structure)
       else if (calc.evaluation_days && Array.isArray(calc.evaluation_days) && calc.evaluation_days.length > 0) {
         console.log('Processing from evaluation_days:', calc.evaluation_days);
         
         evaluationDays = calc.evaluation_days.map(day => {
           // Extract staff data
           const dayStaff = (day.staff && Array.isArray(day.staff)) ? day.staff : [];
-          
-          totalDays++;
           
           return {
             date: day.date || day.evaluation_date,
@@ -658,6 +541,8 @@ const CalculationArchive = () => {
             }))
           };
         });
+        
+        totalDays = evaluationDays.length;
       }
       // Try evaluationDays (another possible structure)
       else if (calc.evaluationDays && Array.isArray(calc.evaluationDays) && calc.evaluationDays.length > 0) {
@@ -666,8 +551,6 @@ const CalculationArchive = () => {
         evaluationDays = calc.evaluationDays.map(day => {
           // Extract staff data
           const dayStaff = (day.staff && Array.isArray(day.staff)) ? day.staff : [];
-          
-          totalDays++;
           
           return {
             date: day.date || day.evaluation_date,
@@ -680,6 +563,8 @@ const CalculationArchive = () => {
             }))
           };
         });
+        
+        totalDays = evaluationDays.length;
       }
       // Minimal structure - create synthetic evaluation days
       else if (papersEvaluated > 0) {
@@ -811,9 +696,6 @@ const CalculationArchive = () => {
             page-break-after: always;
             position: relative;
             padding: 30px 20px;
-            min-height: 90vh;
-            display: flex;
-            flex-direction: column;
           }
           
           /* Header Styles */
@@ -941,22 +823,15 @@ const CalculationArchive = () => {
           
           /* Footer Styles */
           .page-footer {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
             text-align: center;
             font-size: 9pt;
-            color: #666;
-            padding: 10px 0;
+            color: #777;
             border-top: 1px solid #ddd;
-            margin-top: 20px;
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-          }
-          
-          .page-footer-spacer {
-            height: 50px;
-            width: 100%;
-            margin-top: auto;
+            padding-top: 10px;
           }
           
           .page-number {
@@ -1042,7 +917,7 @@ const CalculationArchive = () => {
             <tbody>
               ${Object.entries(departmentGroups).map(([dept, data]) => `
                 <tr>
-                  <td>${safe(dept)}</td>
+                  <td>${dept}</td>
                   <td class="text-center">${data.examiners.size}</td>
                   <td class="text-center">${data.totalEvaluations}</td>
                   <td class="text-center">${data.totalPapers}</td>
@@ -1065,12 +940,11 @@ const CalculationArchive = () => {
           </div>
         `}
         
-        <div class="page-footer-spacer"></div>
         ${generatePageFooter(1)}
       </div>
     `;
     
-    // Generate pages for each examiner (1 page per examiner now - no detailed breakdown)
+    // Generate pages for each examiner (2 pages per examiner)
     let pageCount = 2; // Starting from page 2
     
     Object.values(examinerGroups).forEach((examiner) => {
@@ -1083,9 +957,9 @@ const CalculationArchive = () => {
             <h2 class="text-center">Examiner Summary</h2>
             <div style="display: flex; flex-wrap: wrap; justify-content: space-between;">
               <div style="width: 48%;">
-                <p><strong>Name:</strong> ${safe(examiner.name)}</p>
-                <p><strong>Examiner ID:</strong> ${safe(examiner.id)}</p>
-                <p><strong>Department:</strong> ${safe(examiner.department)}</p>
+                <p><strong>Name:</strong> ${examiner.name}</p>
+                <p><strong>Examiner ID:</strong> ${examiner.id}</p>
+                <p><strong>Department:</strong> ${examiner.department}</p>
               </div>
               <div style="width: 48%;">
                 <p><strong>Total Calculations:</strong> ${examiner.totalCalculations}</p>
@@ -1113,27 +987,85 @@ const CalculationArchive = () => {
               ${examiner.calculations.map(calc => `
                 <tr>
                   <td>${formatDateFn(calc.created_at || calc.calculation_date)}</td>
-                  <td class="text-center">${calc.total_days || 0}</td>
-                  <td class="text-center">${calc.total_staff || 0}</td>
-                  <td class="text-center">${calc.total_papers || 0}</td>
-                  <td class="text-right">${currency(calc.base_amount || 0)}</td>
-                  <td class="text-right">${currency(calc.incentive_amount || 0)}</td>
-                  <td class="text-right">${currency(calc.total_amount || 0)}</td>
+                  <td class="text-center">${calc.total_days}</td>
+                  <td class="text-center">${calc.total_staff}</td>
+                  <td class="text-center">${calc.total_papers}</td>
+                  <td class="text-right">${currency(calc.base_amount)}</td>
+                  <td class="text-right">${currency(calc.incentive_amount)}</td>
+                  <td class="text-right">${currency(calc.total_amount)}</td>
                 </tr>
               `).join('')}
               <tr class="total-row">
                 <td><strong>Total</strong></td>
-                <td class="text-center"><strong>${examiner.totalEvaluationDays || 0}</strong></td>
-                <td class="text-center"><strong>${examiner.totalStaffCount || 0}</strong></td>
-                <td class="text-center"><strong>${examiner.totalPapers || 0}</strong></td>
-                <td class="text-right"><strong>${currency(examiner.totalAmount * 0.9 || 0)}</strong></td>
-                <td class="text-right"><strong>${currency(examiner.totalAmount * 0.1 || 0)}</strong></td>
-                <td class="text-right text-danger"><strong>${currency(examiner.totalAmount || 0)}</strong></td>
+                <td class="text-center"><strong>${examiner.totalEvaluationDays}</strong></td>
+                <td class="text-center"><strong>${examiner.totalStaffCount}</strong></td>
+                <td class="text-center"><strong>${examiner.totalPapers}</strong></td>
+                <td class="text-right"><strong>${currency(examiner.totalAmount * 0.9)}</strong></td>
+                <td class="text-right"><strong>${currency(examiner.totalAmount * 0.1)}</strong></td>
+                <td class="text-right text-danger"><strong>${currency(examiner.totalAmount)}</strong></td>
               </tr>
             </tbody>
           </table>
           
-          <div class="page-footer-spacer"></div>
+          ${generatePageFooter(pageCount++)}
+        </div>
+      `;
+      
+      // Page for examiner detailed breakdown
+      html += `
+        <div class="section">
+          ${generatePageHeader()}
+          
+          <h2 class="section-title">Detailed Breakdown for ${examiner.name}</h2>
+          
+          ${examiner.calculations.length > 0 ? examiner.calculations.map(calc => `
+            <div class="calculation-detail">
+              <h3 class="detail-date">✅ Calculation Date: ${formatDateFn(calc.created_at || calc.calculation_date)}</h3>
+              
+              ${calc.evaluationDays && calc.evaluationDays.length > 0 ? 
+                calc.evaluationDays.map(day => `
+                  <h4>Evaluation Date: ${formatDateFn(day.date)}</h4>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Staff Name</th>
+                        <th class="text-right">Papers Evaluated</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${day.staff && day.staff.length > 0 ? 
+                        day.staff.map(staff => `
+                          <tr>
+                            <td>${staff.name}</td>
+                            <td class="text-right">${staff.papers}</td>
+                          </tr>
+                        `).join('') : `
+                          <tr>
+                            <td colspan="2" class="text-center">No staff details available</td>
+                          </tr>
+                        `
+                      }
+                      <tr class="total-row">
+                        <td><strong>Total Papers</strong></td>
+                        <td class="text-right"><strong>${day.total_papers}</strong></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                `).join('') : `
+                  <div class="alert-box">
+                    <p class="text-center">No evaluation day details available for this calculation.</p>
+                    <p class="text-center text-small">The calculation was found but contains no detailed evaluation data.</p>
+                  </div>
+                `
+              }
+            </div>
+          `).join('') : `
+            <div class="alert-box">
+              <p class="text-center">No calculations found for this examiner.</p>
+              <p class="text-center text-small">The examiner exists in the system but has no calculation records.</p>
+            </div>
+          `}
+          
           ${generatePageFooter(pageCount++)}
         </div>
       `;
@@ -1157,7 +1089,7 @@ const CalculationArchive = () => {
     }
     
     // Otherwise show a toast guiding the user to select calculations first
-    toast.dismiss();
+      toast.dismiss();
     toast('Please select specific calculations using the checkboxes, then click Export Reports again', 
       { duration: 5000 });
       
@@ -1826,613 +1758,114 @@ const CalculationArchive = () => {
     }
   };
   
-  // Handle PDF download
+  // Handle download PDF
   const handleDownloadPDF = async (calculationId) => {
     try {
-      toast.loading('Preparing PDF download...', { id: 'pdf-toast' });
+      setLoading(true);
+      const fileName = `calculation_report_${calculationId}_${new Date().getTime()}.pdf`;
       
-      // Find the calculation to get its details
-      const calculation = calculations.find(c => c.id === calculationId);
+      // Call the service to generate PDF using react-pdf/renderer
+      const document = await calculationService.generateCalculationPDF(calculationId, fileName);
       
-      if (!calculation) {
-        toast.error('Calculation not found', { id: 'pdf-toast' });
-        return false;
+      if (!document || !document.blob_url) {
+        throw new Error('Failed to generate PDF document: No blob URL returned');
       }
       
-      // Check if PDF URL already exists and try to fetch it
-      if (calculation && calculation.pdf_url) {
-        try {
-      await calculationService.downloadCalculationPDF({ calculationId });
-          toast.success('PDF downloaded successfully', { id: 'pdf-toast' });
-          return true;
-        } catch (error) {
-          console.warn('Could not download existing PDF, will regenerate:', error);
-          // Continue to regeneration below
-        }
-      }
+      // Open the PDF in a new tab
+      window.open(document.blob_url, '_blank');
       
-      toast.loading('Generating new PDF report...', { id: 'pdf-toast' });
-      
-      // Extract calculation data
-      const examinerName = calculation.examiner_name || "Unknown Examiner";
-      const examinerId = calculation.examiner_id || "N/A";
-      const department = calculation.department || "N/A";
-      const totalPapers = calculation.total_papers || 0;
-      const totalStaff = calculation.total_staff || calculation.staff_count || 0;
-      const baseSalary = calculation.base_salary || calculation.base_amount || 0;
-      const incentive = calculation.incentive || calculation.incentive_amount || 0;
-      const finalAmount = calculation.total_amount || calculation.final_amount || 0;
-      
-      // Format functions
-      const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('en-IN', {
-          style: 'currency',
-          currency: 'INR',
-          minimumFractionDigits: 2
-        }).format(parseFloat(amount) || 0);
-      };
-      
-      // Get current date
-      const currentDate = formatDate(new Date());
-      const calculationDate = formatDate(calculation.calculation_date || calculation.created_at || new Date());
-      
-      // Generate evaluation days details
-      let evaluationDaysHtml = '';
-      
-      // Check if we have detailed calculation days
-      if (calculation.calculation_days && Array.isArray(calculation.calculation_days)) {
-        calculation.calculation_days.forEach((day, index) => {
-          const evalDay = day.evaluation_day || {};
-          const evalDate = formatDate(evalDay.date || day.date || new Date());
-          const staffCount = evalDay.staff_count || day.staff_count || 1;
-          const totalPapers = evalDay.total_papers || day.total_papers || 0;
-          
-          // Calculate papers per staff for this day
-          const papersPerStaff = Math.floor(totalPapers / staffCount);
-          const remainder = totalPapers % staffCount;
-          
-          let staffRows = '';
-          for (let i = 0; i < staffCount; i++) {
-            // Add extra papers to the first staff member if there's a remainder
-            const extraPapers = i === 0 ? remainder : 0;
-            const staffPapers = papersPerStaff + extraPapers;
-            
-            staffRows += `
-              <tr>
-                <td>Staff ${i + 1}</td>
-                <td class="text-right">${staffPapers}</td>
-              </tr>
-            `;
-          }
-          
-          evaluationDaysHtml += `
-            <div class="evaluation-day">
-              <h4>Day ${index + 1} – ${evalDate}</h4>
-              <table class="staff-table">
-                <thead>
-                  <tr>
-                    <th>Staff Name</th>
-                    <th class="text-right">Papers Evaluated</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${staffRows}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td><strong>Total Papers</strong></td>
-                    <td class="text-right"><strong>${totalPapers}</strong></td>
-                  </tr>
-                </tfoot>
-              </table>
-              <p class="day-salary">Calculated Chief Examiner Salary for this day: ${formatCurrency(totalPapers * 20)}</p>
-            </div>
-          `;
-        });
-      } else {
-        // If no detailed days, create a simplified single day view
-        evaluationDaysHtml = `
-          <div class="evaluation-day">
-            <h4>Evaluation Day – ${calculationDate}</h4>
-            <table class="staff-table">
-              <thead>
-                <tr>
-                  <th>Description</th>
-                  <th class="text-right">Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>Total Staff</td>
-                  <td class="text-right">${totalStaff}</td>
-                </tr>
-                <tr>
-                  <td>Total Papers</td>
-                  <td class="text-right">${totalPapers}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        `;
-      }
-      
-      // Create a professional HTML representation of the calculation data
-      const htmlContent = `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>Examiner Salary Calculation</title>
-            <meta charset="UTF-8">
-            <style>
-              @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-              
-              body {
-                font-family: 'Inter', sans-serif;
-                padding: 0;
-                margin: 0;
-                color: #333;
-                font-size: 11pt;
-                line-height: 1.5;
-              }
-              
-              .wrapper {
-                max-width: 210mm; /* A4 width */
-                margin: 0 auto;
-                padding: 20px;
-              }
-              
-              /* Header Section */
-              .header {
-                text-align: center;
-                margin-bottom: 30px;
-                position: relative;
-                padding-bottom: 15px;
-                border-bottom: 1px solid #ddd;
-              }
-              
-              .college-name {
-                font-size: 18pt;
-                font-weight: 700;
-                text-transform: uppercase;
-                margin: 0;
-                padding: 0;
-                font-family: 'Arial', 'Helvetica', sans-serif;
-              }
-              
-              .college-affiliation {
-                font-style: italic;
-                font-size: 10pt;
-                margin: 4px 0;
-                font-family: 'Arial', 'Helvetica', sans-serif;
-                font-weight: 600;
-              }
-              
-              .department {
-                font-weight: 700;
-                text-transform: uppercase;
-                text-decoration: underline;
-                margin: 8px 0;
-                font-family: 'Arial', 'Helvetica', sans-serif;
-              }
-              
-              .header-date {
-                position: absolute;
-                top: 10px;
-                right: 10px;
-                font-size: 9pt;
-              }
-              
-              /* Examiner Info Section */
-              .examiner-info {
-                border: 1px solid #ddd;
-                border-radius: 8px;
-                padding: 15px;
-                margin-bottom: 25px;
-                display: flex;
-                flex-wrap: wrap;
-              }
-              
-              .info-label {
-                width: 40%;
-                font-weight: 500;
-                padding: 5px 0;
-              }
-              
-              .info-value {
-                width: 60%;
-                padding: 5px 0;
-              }
-              
-              .examiner-title {
-                display: inline-block;
-                margin-left: 10px;
-                background-color: #E3F2FD;
-                border: 1px solid #90CAF9;
-                border-radius: 4px;
-                padding: 2px 8px;
-                font-size: 9pt;
-              }
-              
-              /* Summary Table */
-              .summary-table {
-                width: 100%;
-                border-collapse: collapse;
-                margin-bottom: 30px;
-              }
-              
-              .summary-table th,
-              .summary-table td {
-                padding: 10px;
-                border: 1px solid #ddd;
-              }
-              
-              .summary-table th {
-                background-color: #f5f5f5;
-                font-weight: 600;
-                text-align: left;
-              }
-              
-              .summary-table td.value {
-                text-align: right;
-              }
-              
-              .summary-table tr.total-row {
-                background-color: #FFFDE7;
-                font-weight: 700;
-                color: #D32F2F;
-              }
-              
-              /* Detailed Report */
-              .detailed-report {
-                margin-bottom: 30px;
-              }
-              
-              .section-title {
-                font-size: 14pt;
-                margin-bottom: 15px;
-                padding-bottom: 5px;
-                border-bottom: 2px solid #3F51B5;
-                color: #3F51B5;
-                font-weight: 600;
-              }
-              
-              .evaluation-day {
-                margin-bottom: 25px;
-                border-left: 3px solid #E0E0E0;
-                padding-left: 15px;
-              }
-              
-              .evaluation-day h4 {
-                margin: 0 0 10px 0;
-                font-weight: 600;
-                color: #455A64;
-              }
-              
-              .staff-table {
-                width: 100%;
-                border-collapse: collapse;
-                margin-bottom: 10px;
-              }
-              
-              .staff-table th,
-              .staff-table td {
-                padding: 8px;
-                border: 1px solid #ddd;
-                text-align: left;
-              }
-              
-              .staff-table th {
-                background-color: #f5f5f5;
-                font-weight: 500;
-              }
-              
-              .staff-table tfoot {
-                background-color: #ECEFF1;
-              }
-              
-              .text-right {
-                text-align: right !important;
-              }
-              
-              .day-salary {
-                margin: 5px 0;
-                font-weight: 500;
-                color: #455A64;
-              }
-              
-              /* Footer */
-              .footer {
-                margin-top: 40px;
-                padding-top: 15px;
-                border-top: 1px solid #ddd;
-                text-align: center;
-                font-size: 9pt;
-                color: #757575;
-              }
-              
-              .footer-branding {
-                font-weight: 600;
-                margin-bottom: 5px;
-              }
-              
-              .copyright {
-                font-size: 8pt;
-              }
-            </style>
-          </head>
-          <body>
-            <div class="wrapper">
-              <!-- Header Section -->
-              <div class="header">
-                <div class="header-date">Report Generated: ${currentDate}</div>
-                <h1 class="college-name">Guru Nanak College (Autonomous)</h1>
-                <p class="college-affiliation">Affiliated to University of Madras, Chennai</p>
-                <p class="department">Controller of Examinations (COE)</p>
-              </div>
-              
-              <!-- Examiner Info Section -->
-              <div class="examiner-info">
-                <div class="info-label">Full Name:</div>
-                <div class="info-value">
-                  <strong>${examinerName}</strong>
-                  <span class="examiner-title">Chief Examiner</span>
-                </div>
-                
-                <div class="info-label">Examiner ID:</div>
-                <div class="info-value">${examinerId}</div>
-                
-                <div class="info-label">Department:</div>
-                <div class="info-value">${department}</div>
-                
-                <div class="info-label">Calculation Date:</div>
-                <div class="info-value">${calculationDate}</div>
-              </div>
-              
-              <!-- Summary Table -->
-              <h2 class="section-title">Summary Calculation</h2>
-              <table class="summary-table">
-                <tbody>
-                  <tr>
-                    <th>Total Papers</th>
-                    <td class="value">${totalPapers}</td>
-                  </tr>
-                  <tr>
-                    <th>Total Staff</th>
-                    <td class="value">${totalStaff}</td>
-                  </tr>
-                  <tr>
-                    <th>Base Salary</th>
-                    <td class="value">${formatCurrency(baseSalary)}</td>
-                  </tr>
-                  <tr>
-                    <th>Incentive (10%)</th>
-                    <td class="value">${formatCurrency(incentive)}</td>
-                  </tr>
-                  <tr class="total-row">
-                    <th>Final Amount</th>
-                    <td class="value">${formatCurrency(finalAmount)}</td>
-                  </tr>
-                </tbody>
-              </table>
-              
-              <!-- Detailed Report -->
-              <h2 class="section-title">Detailed Calculation Report</h2>
-              <div class="detailed-report">
-                ${evaluationDaysHtml}
-              </div>
-              
-              <!-- Footer -->
-              <div class="footer">
-                <p class="footer-branding">Generated via ExaminerPro — Center of Examination (COE) Automation System</p>
-                <p class="copyright">© 2024 Guru Nanak College - Controller of Examinations</p>
-              </div>
-            </div>
-          </body>
-        </html>
-      `;
-      
-      try {
-        // Create a container for the PDF content
-        const container = document.createElement('div');
-        container.innerHTML = htmlContent;
-        container.style.position = 'absolute';
-        container.style.left = '-9999px'; // Off-screen
-        container.style.top = '0';
-        container.style.width = '210mm'; // A4 width
-        document.body.appendChild(container);
-        
-        // Create a PDF document with A4 size
-        const pdf = new jsPDF({
-          orientation: 'portrait',
-          unit: 'mm',
-          format: 'a4'
-        });
-        
-        // Convert HTML to canvas and add to PDF
-        const element = container.querySelector('.wrapper');
-        
-        await html2canvas(element, {
-          scale: 2,
-          useCORS: true,
-          letterRendering: true,
-          logging: false // Turn off verbose logging
-        }).then(canvas => {
-          // Calculate proper scaling to fit in PDF page
-          const imgWidth = pdf.internal.pageSize.getWidth() - 20; // 10mm margins on each side
-          const imgHeight = (canvas.height * imgWidth) / canvas.width;
-          
-          // Add the image to the PDF
-          const imgData = canvas.toDataURL('image/jpeg', 0.95);
-          pdf.addImage(imgData, 'JPEG', 10, 10, imgWidth, imgHeight);
-          
-          // Save the PDF
-          const fileName = `calculation_${examinerId}_${new Date().getTime()}.pdf`;
-          pdf.save(fileName);
-        });
-        
-        // Clean up
-        document.body.removeChild(container);
-        
-        // Update PDF URL in the database
-        const timestamp = new Date().getTime();
-        const pdfFileName = `calculation_${examinerId}_${timestamp}.pdf`;
-        const pdfUrl = `/pdfs/${pdfFileName}`;
-        
-        try {
-          // Update the existing record with the PDF URL
-          const { error: updateError } = await supabase
-            .from('calculation_documents')
-            .update({ pdf_url: pdfUrl })
-            .eq('id', calculationId);
-            
-          if (updateError) {
-            console.warn('Error updating calculation with PDF URL:', updateError);
-          }
-        } catch (dbError) {
-          console.warn('Failed to update PDF URL in database:', dbError);
-        }
-        
-        toast.success('PDF generated and downloaded successfully', { id: 'pdf-toast' });
-        return true;
-      } catch (pdfError) {
-        console.error('Error generating PDF:', pdfError);
-        
-        // Fallback to HTML if PDF generation fails
-        const blob = new Blob([htmlContent], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        
-        // Create a link and trigger download
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `calculation_${examinerId}_${new Date().getTime()}.html`;
-        document.body.appendChild(link);
-        link.click();
-        
-        // Clean up
-        setTimeout(() => {
-          URL.revokeObjectURL(url);
-          document.body.removeChild(link);
-        }, 100);
-        
-        toast.warning('PDF conversion failed. Downloaded as HTML instead.', { id: 'pdf-toast' });
-        return false;
-      }
+      toast.success('PDF generated successfully');
     } catch (error) {
-      toast.dismiss();
-      console.error('Error downloading PDF:', error);
-      toast.error('Error downloading PDF: ' + (error.message || 'Unknown error'), { id: 'pdf-toast' });
-      return false;
+      console.error('Error generating PDF:', error);
+      toast.error(`Failed to generate PDF: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
   // Render calculation grid
   const renderCalculationGrid = (calculations) => {
-    // Group calculations if needed
-    const grouped = groupBy !== 'none' ? groupCalculations(calculations) : {'All Calculations': calculations};
-    
     return (
-      <div className="space-y-4 md:space-y-6">
-        {Object.entries(grouped).map(([group, items]) => (
-          <div key={group}>
-            {/* Group Header - Only show if grouped */}
-            {groupBy !== 'none' && (
-              <div className="px-3 md:px-4 py-2 md:py-3 bg-white dark:bg-gray-800 rounded-lg shadow-md mb-3 md:mb-4 flex justify-between items-center">
-                <h3 className="font-medium text-gray-800 dark:text-white text-sm md:text-base">{group}</h3>
-                <span className="text-xs md:text-sm text-gray-500 dark:text-gray-400">{items.length} calculations</span>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {calculations.map(calculation => (
+          <div key={calculation.id} className={`${cardBg} rounded-lg shadow-md border ${borderColor} overflow-hidden`}>
+            {/* Card Header */}
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-start">
+              <div>
+                <h3 className={`${textColor} font-semibold`}>
+                  {calculation.examiner_name || "Unknown Examiner"}
+                </h3>
+                <p className={`${secondaryText} text-sm flex items-center`}>
+                  <span className="mr-1">🆔</span> {calculation.examiner_id || "N/A"}
+                </p>
               </div>
-            )}
+              <input
+                type="checkbox"
+                checked={selectedCalculations.includes(calculation.id)}
+                onChange={() => handleSelectCalculation(calculation.id)}
+                className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+              />
+            </div>
             
-            {/* Grid layout */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
-              {items.map((calculation) => (
-                <div 
-                  key={calculation.id} 
-                  className={`relative rounded-lg shadow-md overflow-hidden ${
-                    selectedCalculations.includes(calculation.id) 
-                      ? 'ring-2 ring-blue-500 dark:ring-blue-400' 
-                      : ''
-                  }`}
-                >
-                  {/* Card Content */}
-                  <div className="bg-white dark:bg-gray-800 p-3 md:p-4">
-                    {/* Selection Checkbox */}
-                    <div className="absolute top-2 md:top-3 right-2 md:right-3">
-                      <input
-                        type="checkbox"
-                        checked={selectedCalculations.includes(calculation.id)}
-                        onChange={() => handleSelectCalculation(calculation.id)}
-                        className="h-4 w-4 md:h-5 md:w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                    </div>
-                    
-                    {/* Header */}
-                    <div className="mb-2 md:mb-3 pr-5 md:pr-6">
-                      <h4 className="text-sm md:text-base font-medium text-gray-900 dark:text-white mb-1 truncate">
-                        {calculation.examiner_name || 'Unknown Examiner'}
-                      </h4>
-                      <div className="flex justify-between text-xs md:text-sm text-gray-500 dark:text-gray-400">
-                        <span>{formatDate(calculation.calculation_date || calculation.created_at)}</span>
-                        <span className="font-medium">₹{calculation.total_amount?.toFixed(2) || 0}</span>
-                      </div>
-                    </div>
-                    
-                    {/* Tags */}
-                    <div className="flex flex-wrap gap-1 md:gap-1.5 mb-3 md:mb-4">
-                      <span className="inline-flex items-center px-1.5 md:px-2 py-0.5 rounded-full text-[10px] md:text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                        {calculation.total_papers || 0} Papers
-                      </span>
-                      <span className="inline-flex items-center px-1.5 md:px-2 py-0.5 rounded-full text-[10px] md:text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                        {calculation.total_days || 0} Days
-                      </span>
-                      {calculation.department && (
-                        <span className="inline-flex items-center px-1.5 md:px-2 py-0.5 rounded-full text-[10px] md:text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 truncate max-w-[100px] md:max-w-[120px]" title={calculation.department}>
-                          {calculation.department}
-                        </span>
-                      )}
-                    </div>
-                    
-                    {/* Quick Stats */}
-                    <div className="grid grid-cols-2 gap-2 text-xs md:text-sm mb-3 md:mb-4">
-                      <div className="bg-gray-50 dark:bg-gray-700 p-1.5 md:p-2 rounded">
-                        <p className="text-[10px] md:text-xs text-gray-500 dark:text-gray-400">Base</p>
-                        <p className="font-medium">₹{calculation.base_salary || 0}</p>
-                      </div>
-                      <div className="bg-gray-50 dark:bg-gray-700 p-1.5 md:p-2 rounded">
-                        <p className="text-[10px] md:text-xs text-gray-500 dark:text-gray-400">Incentive</p>
-                        <p className="font-medium">₹{calculation.incentive || 0}</p>
-                      </div>
-                    </div>
-                    
-                    {/* Actions */}
-                    <div className="grid grid-cols-2 gap-1.5 md:gap-2">
-                      <button
-                        onClick={() => navigate(`/calculations/${calculation.id}`)}
-                        className="w-full py-1 md:py-1.5 text-[10px] md:text-xs bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 rounded hover:bg-indigo-200 dark:hover:bg-indigo-800/40 transition-colors"
-                      >
-                        View Details
-                      </button>
-                      <button
-                        onClick={() => handleDownloadPDF(calculation.id)}
-                        className="w-full py-1 md:py-1.5 text-[10px] md:text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 rounded hover:bg-green-200 dark:hover:bg-green-800/40 transition-colors"
-                      >
-                        PDF
-                      </button>
-                      <button
-                        onClick={() => handleDelete(calculation.id)}
-                        className="w-full py-1 md:py-1.5 text-[10px] md:text-xs bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 rounded hover:bg-red-200 dark:hover:bg-red-800/40 transition-colors"
-                      >
-                        Delete
-                      </button>
-                      <button
-                        onClick={() => handleRecalculate(calculation.id)}
-                        className="w-full py-1 md:py-1.5 text-[10px] md:text-xs bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300 rounded hover:bg-yellow-200 dark:hover:bg-yellow-800/40 transition-colors"
-                      >
-                        Recalculate
-                      </button>
-                    </div>
-                  </div>
+            {/* Card Content */}
+            <div className="p-4">
+              {calculation.detailsFetchFailed && (
+                <div className="mb-3 p-2 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-xs rounded-md">
+                  Some details couldn't be loaded. Basic information shown.
                 </div>
-              ))}
+              )}
+              <div className="grid grid-cols-2 gap-4 mb-3">
+                <div>
+                  <p className={`text-xs ${secondaryText} flex items-center`}>
+                    <span className="mr-1">📅</span> Date & Time
+                  </p>
+                  <p className={`${textColor} text-sm`}>
+                    {formatDate(calculation.calculation_date || calculation.created_at || new Date())}
+                  </p>
+                </div>
+                <div>
+                  <p className={`text-xs ${secondaryText} flex items-center`}>
+                    <span className="mr-1">📄</span> Total Papers
+                  </p>
+                  <p className={`${textColor} text-sm font-medium`}>
+                    {calculation.total_papers || 0}
+                  </p>
+                </div>
+                <div>
+                  <p className={`text-xs ${secondaryText} flex items-center`}>
+                    <span className="mr-1">👥</span> Staff
+                  </p>
+                  <p className={`${textColor} text-sm font-medium`}>
+                    {calculation.total_staff || calculation.staff_count || 0}
+                  </p>
+                </div>
+                <div>
+                  <p className={`text-xs ${secondaryText} flex items-center`}>
+                    <span className="mr-1">💰</span> Final Amount
+                  </p>
+                  <p className={`${textColor} text-sm font-medium`}>
+                    ₹{(calculation.total_amount || calculation.final_amount || 0).toFixed(2)}
+                  </p>
+                </div>
+              </div>
+              
+              {/* Actions */}
+              <div className="flex flex-row gap-2 mt-4 justify-center">
+                <button
+                  onClick={() => navigate(`/calculations/view/${calculation.id}`)}
+                  className="flex items-center px-3 py-1.5 text-sm rounded-md bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-800/40"
+                >
+                  <span className="mr-1">👁️</span> View Details
+                </button>
+                <button
+                  onClick={() => handleDownloadPDF(calculation.id)}
+                  className="flex items-center px-3 py-1.5 text-sm rounded-md bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-800/40"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
         ))}
@@ -2442,154 +1875,116 @@ const CalculationArchive = () => {
   
   // Render calculation list
   const renderCalculationList = (calculations) => {
-    // Group calculations if needed
-    const grouped = groupBy !== 'none' ? groupCalculations(calculations) : {'All Calculations': calculations};
-    
     return (
-      <div className="space-y-4 md:space-y-6">
-        {Object.entries(grouped).map(([group, items]) => (
-          <div key={group} className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
-            {/* Group Header - Only show if grouped */}
-            {groupBy !== 'none' && (
-              <div className="px-3 md:px-4 py-2 md:py-3 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600 flex justify-between items-center">
-                <h3 className="font-medium text-gray-800 dark:text-white text-sm md:text-base">{group}</h3>
-                <span className="text-xs md:text-sm text-gray-500 dark:text-gray-400">{items.length} calculations</span>
+      <div className="space-y-4">
+        {calculations.map(calculation => (
+          <div key={calculation.id} className={`${cardBg} border ${borderColor} rounded-lg shadow-sm p-4`}>
+            <div className="flex flex-col md:flex-row justify-between">
+              <div className="flex items-center mb-3 md:mb-0">
+                <input
+                  type="checkbox"
+                  checked={selectedCalculations.includes(calculation.id)}
+                  onChange={() => handleSelectCalculation(calculation.id)}
+                  className="h-4 w-4 text-blue-600 border-gray-300 rounded mr-3"
+                />
+                <div>
+                  <h3 className={`text-lg font-medium ${textColor}`}>
+                    {calculation.examiner_name || "Unknown"}
+                  </h3>
+                  <div className="flex items-center mt-1">
+                    <span className={`text-sm ${secondaryText} mr-3`}>
+                      ID: {calculation.examiner_id || 'N/A'}
+                    </span>
+                    <span className={`text-sm ${secondaryText}`}>
+                      {formatDate(calculation.calculation_date || calculation.created_at || new Date())}
+                    </span>
               </div>
-            )}
+                  </div>
+                      </div>
+              
+              <div className="flex flex-col md:flex-row items-start md:items-center gap-3">
+                <div className="flex flex-col items-end">
+                  <div className={`text-base font-medium ${textColor}`}>
+                    ₹{(calculation.total_amount || calculation.final_amount || 0).toFixed(2)}
+                  </div>
+                  <div className="flex items-center">
+                    <span className={`text-xs ${secondaryText}`}>
+                      Papers: {calculation.total_papers || 0} | Staff: {calculation.total_staff || calculation.staff_count || 0}
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => navigate(`/calculations/view/${calculation.id}`)}
+                    className="flex items-center px-3 py-1.5 text-sm rounded-md bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-800/40"
+                  >
+                    <span className="mr-1">👁️</span> View Details
+                  </button>
+                  <button 
+                    onClick={() => toggleExpand(calculation.id)}
+                    className="flex items-center px-3 py-1.5 text-sm rounded-md bg-gray-50 text-gray-700 dark:bg-gray-700/50 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/70"
+                      >
+                    {expandedItems[calculation.id] ? 'Hide Details' : 'Show Details'}
+                      </button>
+                      <button
+                    onClick={() => handleDownloadPDF(calculation.id)}
+                    className="flex items-center px-3 py-1.5 text-sm rounded-md bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-800/40"
+                      >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
             
-            {/* Items */}
-            <div className="divide-y divide-gray-200 dark:divide-gray-700">
-              {items.map((calculation) => (
-                <div 
-                  key={calculation.id} 
-                  className={`p-3 md:p-4 ${
-                    selectedCalculations.includes(calculation.id) 
-                      ? 'bg-blue-50 dark:bg-blue-900/20' 
-                      : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
-                  } transition-colors`}
-                >
-                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between">
-                    {/* Selection Checkbox */}
-                    <div className="flex-shrink-0 mr-2 md:mr-3 mb-2 md:mb-0">
-                      <input
-                        type="checkbox"
-                        checked={selectedCalculations.includes(calculation.id)}
-                        onChange={() => handleSelectCalculation(calculation.id)}
-                        className="h-4 w-4 md:h-5 md:w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                    </div>
-                    
-                    {/* Main Content */}
-                    <div className="flex-grow md:mr-2 mb-2 md:mb-0">
-                      <div className="flex flex-col md:flex-row md:items-center mb-1 space-y-1 md:space-y-0 md:space-x-3">
-                        <h4 className="text-sm md:text-base font-medium text-gray-900 dark:text-white">
-                          {calculation.examiner_name || 'Unknown Examiner'}
-                        </h4>
-                        <div className="flex items-center text-xs md:text-sm text-gray-500 dark:text-gray-400">
-                          <span>{formatDate(calculation.calculation_date || calculation.created_at)}</span>
-                          <span className="mx-2">•</span>
-                          <span>₹{calculation.total_amount?.toFixed(2) || 0}</span>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-2 mt-1">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                          Papers: {calculation.total_papers || 0}
-                        </span>
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                          Days: {calculation.total_days || 0}
-                        </span>
-                        {calculation.department && (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
-                            {calculation.department}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    
-                    {/* Actions */}
-                    <div className="flex flex-row sm:flex-col md:flex-row space-x-2 w-full sm:w-auto justify-end">
-                      <button
-                        onClick={() => toggleExpand(calculation.id)}
-                        className="flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
-                      >
-                        {expandedItems[calculation.id] ? 'Hide Details' : 'View Details'}
-                      </button>
-                      <button
-                        onClick={() => handleDownloadPDF(calculation.id)}
-                        className="flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 hover:bg-indigo-200 dark:hover:bg-indigo-800/40 transition-colors"
-                      >
-                        Download PDF
-                      </button>
-                      <button
-                        onClick={() => handleDelete(calculation.id)}
-                        className="flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-800/40 transition-colors"
-                      >
-                        Delete
-                      </button>
-                    </div>
+            {/* Expanded details */}
+            {expandedItems[calculation.id] && (
+              <div className={`mt-4 p-4 rounded-md bg-gray-50 dark:bg-gray-800 border ${borderColor}`}>
+                <h4 className={`text-sm font-semibold ${textColor} mb-3`}>Calculation Details</h4>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <h5 className={`text-xs font-medium ${secondaryText} mb-1`}>Valuation Details</h5>
+                    <ul className={`text-sm ${textColor}`}>
+                      <li>Total Days: {calculation.total_days || 0}</li>
+                      <li>Total Papers: {calculation.total_papers || 0}</li>
+                      <li>Total Staff: {calculation.total_staff || calculation.staff_count || 0}</li>
+                      <li>Total Amount: ₹{(calculation.total_amount || calculation.final_amount || 0).toFixed(2)}</li>
+                    </ul>
                   </div>
                   
-                  {/* Expanded Details */}
-                  {expandedItems[calculation.id] && (
-                    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        <div>
-                          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Evaluation Details</h5>
-                          <div className="text-sm">
-                            <p className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
-                              <span>Total Papers:</span>
-                              <span className="font-medium">{calculation.total_papers || 0}</span>
-                            </p>
-                            <p className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
-                              <span>Total Staff:</span>
-                              <span className="font-medium">{calculation.total_staff || 0}</span>
-                            </p>
-                            <p className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
-                              <span>Evaluation Days:</span>
-                              <span className="font-medium">{calculation.total_days || 0}</span>
-                            </p>
+                  <div>
+                    <h5 className={`text-xs font-medium ${secondaryText} mb-1`}>Evaluation Days</h5>
+                    <ul className={`text-sm ${textColor}`}>
+                      {calculation.evaluationDays && calculation.evaluationDays.map((day, i) => (
+                        <li key={day.id || i}>
+                          {formatDate(day.evaluation_date)} - {day.staff_count || 0} staff, {day.total_papers || 0} papers
+                        </li>
+                      ))}
+                    </ul>
                           </div>
-                        </div>
-                        <div>
-                          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Salary Breakdown</h5>
-                          <div className="text-sm">
-                            <p className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
-                              <span>Base Salary:</span>
-                              <span className="font-medium">₹{calculation.base_salary || 0}</span>
-                            </p>
-                            <p className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
-                              <span>Incentives:</span>
-                              <span className="font-medium">₹{calculation.incentive || 0}</span>
-                            </p>
-                            <p className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
-                              <span>Final Amount:</span>
-                              <span className="font-medium text-green-600 dark:text-green-400">₹{calculation.total_amount?.toFixed(2) || 0}</span>
-                            </p>
-                          </div>
-                        </div>
-                        <div className="sm:col-span-2 lg:col-span-1">
-                          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Actions</h5>
-                          <div className="flex flex-col space-y-2">
-                            <button
-                              onClick={() => navigate(`/calculations/${calculation.id}`)}
-                              className="w-full py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                            >
-                              View Full Details
-                            </button>
-                            <button
-                              onClick={() => handleRecalculate(calculation.id)}
-                              className="w-full py-1.5 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
-                            >
-                              Recalculate
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                  
+                  <div>
+                    <h5 className={`text-xs font-medium ${secondaryText} mb-1`}>Documents</h5>
+                    <ul className={`text-sm ${textColor}`}>
+                      {calculation.documents && calculation.documents.map((doc, i) => (
+                        <li key={doc.id || i} className="flex items-center justify-between">
+                          <span>{doc.file_name}</span>
+                          <button 
+                            onClick={() => calculationService.downloadCalculationDocument(doc.file_path)}
+                            className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-xs"
+                          >
+                            Download
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -2655,513 +2050,384 @@ const CalculationArchive = () => {
     };
   }, []);
 
-  const renderCalculationTable = (calculations) => {
-    return (
-      <div className="overflow-x-auto rounded-lg shadow">
-        <table className="w-full border-collapse">
-          <thead className="bg-gray-50 dark:bg-gray-700">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                <input
-                  type="checkbox"
-                  checked={calculations.length > 0 && selectedCalculations.length === calculations.length}
-                  onChange={() => handleSelectAll(calculations)}
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-              </th>
-              <th className="hidden sm:table-cell px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                ID
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                Examiner
-              </th>
-              <th className="hidden sm:table-cell px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                Department
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                Date
-              </th>
-              <th className="hidden md:table-cell px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                Papers
-              </th>
-              <th className="hidden lg:table-cell px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                Days
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                Amount
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-            {calculations.map(calculation => (
-              <tr 
-                key={calculation.id} 
-                className={selectedCalculations.includes(calculation.id) 
-                  ? 'bg-blue-50 dark:bg-blue-900/20' 
-                  : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
-                }
-              >
-                <td className="px-4 py-3 whitespace-nowrap">
-                  <input
-                    type="checkbox"
-                    checked={selectedCalculations.includes(calculation.id)}
-                    onChange={() => handleSelectCalculation(calculation.id)}
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                </td>
-                <td className="hidden sm:table-cell px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                  {calculation.examiner_id || 'N/A'}
-                </td>
-                <td className="px-4 py-3 whitespace-nowrap">
-                  <div className="flex flex-col">
-                    <div className="text-sm font-medium text-gray-900 dark:text-white">
-                      {calculation.examiner_name || 'Unknown'}
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400 md:hidden">
-                      {calculation.total_papers || 0} papers
-                    </div>
-                  </div>
-                </td>
-                <td className="hidden sm:table-cell px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                  {calculation.department || 'General'}
-                </td>
-                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                  {formatDate(calculation.calculation_date || calculation.created_at)}
-                </td>
-                <td className="hidden md:table-cell px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                  {calculation.total_papers || 0}
-                </td>
-                <td className="hidden lg:table-cell px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                  {calculation.total_days || 0}
-                </td>
-                <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                  ₹{calculation.total_amount?.toFixed(2) || 0}
-                </td>
-                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                  <div className="flex space-x-1">
-                    <button
-                      onClick={() => handleDownloadPDF(calculation.id)}
-                      className="p-1 rounded-md text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300"
-                      title="Download PDF"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm5 6a1 1 0 10-2 0v3.586l-1.293-1.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V8z" clipRule="evenodd" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={() => navigate(`/calculations/${calculation.id}`)}
-                      className="p-1 rounded-md text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
-                      title="View Details"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                        <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={() => handleDelete(calculation.id)}
-                      className="p-1 rounded-md text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
-                      title="Delete"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                      </svg>
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  };
-
   return (
     <HistoryLayout>
-      <div className="max-w-7xl mx-auto px-2 sm:px-4 md:px-6 py-4 sm:py-6">
-        <div className="flex flex-col space-y-4">
-          {/* Title and Actions Bar */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
-            <div className="mb-4 sm:mb-0">
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white flex items-center">
-                <svg className="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+      {/* Header - with consistent padding */}
+      <div className="mb-6 flex justify-between items-center px-6 pt-6">
+        <div>
+          <h1 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'} flex items-center`}>
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-7 h-7 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+            Calculation Archives
+          </h1>
+          <p className={`mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+            Browse and manage your salary calculations history
+          </p>
+        </div>
+        <div className="flex space-x-2">
+          {selectedCalculations.length > 0 && (
+            <div className="flex space-x-2">
+              <button
+                onClick={handleBulkExport}
+                className={`flex items-center px-3 py-2 rounded-md text-sm ${
+                  isDarkMode ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
-                Calculation Archive
-              </h1>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                View and manage all your salary calculations
-              </p>
-            </div>
-            
-            <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
+                Export ({selectedCalculations.length})
+              </button>
               <button
-                onClick={() => navigate('/new-calculation')}
-                className="flex items-center justify-center px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                onClick={handleBulkDelete}
+                className="flex items-center px-3 py-2 rounded-md text-sm bg-red-600 text-white hover:bg-red-700"
               >
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
-                New Calculation
-              </button>
-              
-              <div className="relative" ref={exportDropdownRef}>
-                <button
-                  onClick={() => setShowExportDropdown(!showExportDropdown)}
-                  className="flex items-center justify-center w-full sm:w-auto px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-                >
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-                  </svg>
-                  Export Data
-                </button>
-                
-                {showExportDropdown && (
-                  <div className="absolute z-10 right-0 mt-2 w-64 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 text-sm ring-1 ring-black ring-opacity-5 focus:outline-none">
-                    <button
-                      onClick={handleBulkExport}
-                      className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      🗃️ Export Selected as PDFs
-                    </button>
-                    
-                    <button
-                      onClick={handleMergedReportsExport}
-                      className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      📊 Generate Merged Report
-                    </button>
-                    
-                    <button
-                      onClick={handleExportToExcel}
-                      className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      📑 Export to Excel
-                    </button>
-                    
-                    <button
-                      onClick={handleCustomReportsSelection}
-                      className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      📝 Custom Reports...
-                    </button>
-                  </div>
-                )}
-              </div>
-              
-              {selectedCalculations.length > 0 && (
-                <button
-                  onClick={handleBulkDelete}
-                  className="flex items-center justify-center px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                >
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                  </svg>
-                  Delete Selected ({selectedCalculations.length})
-                </button>
-              )}
-            </div>
-          </div>
-          
-          {/* Filters and Controls Bar */}
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Search */}
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Search by examiner, ID..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                />
-                <span className="absolute right-3 top-2.5 text-gray-400">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                  </svg>
-                </span>
-              </div>
-              
-              {/* Date Filter */}
-              <div className="relative" ref={datePickerRef}>
-                <button
-                  onClick={() => setShowDateRangePicker(!showDateRangePicker)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-left bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center">
-                      <svg className="w-5 h-5 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                      </svg>
-                      {getDateRangeText()}
-                    </span>
-                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
-                    </svg>
-                  </div>
-                </button>
-                
-                {showDateRangePicker && (
-                  <div className="absolute z-10 left-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 text-sm ring-1 ring-black ring-opacity-5 focus:outline-none">
-                    <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700">
-                      <h3 className="font-medium text-gray-900 dark:text-gray-200">Filter by date range</h3>
-                    </div>
-                    
-                    <div className="p-2">
-                      <button
-                        onClick={() => handleDateRangeChange('all')}
-                        className={`w-full text-left px-3 py-2 rounded-md mb-1 ${dateRangeOption === 'all' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                      >
-                        All Time
-                      </button>
-                      
-                      <button
-                        onClick={() => handleDateRangeChange('today')}
-                        className={`w-full text-left px-3 py-2 rounded-md mb-1 ${dateRangeOption === 'today' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                      >
-                        Today
-                      </button>
-                      
-                      <button
-                        onClick={() => handleDateRangeChange('week')}
-                        className={`w-full text-left px-3 py-2 rounded-md mb-1 ${dateRangeOption === 'week' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                      >
-                        This Week
-                      </button>
-                      
-                      <button
-                        onClick={() => handleDateRangeChange('month')}
-                        className={`w-full text-left px-3 py-2 rounded-md mb-1 ${dateRangeOption === 'month' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                      >
-                        This Month
-                      </button>
-                      
-                      <button
-                        onClick={() => handleDateRangeChange('year')}
-                        className={`w-full text-left px-3 py-2 rounded-md mb-1 ${dateRangeOption === 'year' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                      >
-                        This Year
-                      </button>
-                      
-                      <button
-                        onClick={() => handleDateRangeChange('custom')}
-                        className={`w-full text-left px-3 py-2 rounded-md mb-1 ${dateRangeOption === 'custom' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                      >
-                        Custom Range
-                      </button>
-                      
-                      {dateRangeOption === 'custom' && (
-                        <div className="p-2 border-t border-gray-200 dark:border-gray-700 mt-2">
-                          <div className="grid grid-cols-2 gap-2 mb-3">
-                            <div>
-                              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Start Date</label>
-                              <input
-                                type="date"
-                                value={dateFilter.from}
-                                onChange={(e) => setDateFilter(prev => ({ ...prev, from: e.target.value }))}
-                                className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">End Date</label>
-                              <input
-                                type="date"
-                                value={dateFilter.to}
-                                onChange={(e) => setDateFilter(prev => ({ ...prev, to: e.target.value }))}
-                                className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                              />
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => handleDateRangeChange('apply')}
-                            className="w-full py-1 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors text-sm"
-                          >
-                            Apply Custom Range
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-              
-              {/* Sort By */}
-              <div>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-indigo-500 focus:border-indigo-500"
-                >
-                  <option value="date_desc">Newest First</option>
-                  <option value="date_asc">Oldest First</option>
-                  <option value="amount_asc">Amount (Low to High)</option>
-                  <option value="amount_desc">Amount (High to Low)</option>
-                  <option value="papers_asc">Papers (Low to High)</option>
-                  <option value="papers_desc">Papers (High to Low)</option>
-                  <option value="examiner_asc">Examiner Name (A-Z)</option>
-                  <option value="examiner_desc">Examiner Name (Z-A)</option>
-                </select>
-              </div>
-              
-              {/* View Mode & Group By */}
-              <div className="flex space-x-2">
-                <div className="w-1/2">
-                  <select
-                    value={groupBy}
-                    onChange={(e) => setGroupBy(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-indigo-500 focus:border-indigo-500"
-                  >
-                    <option value="none">No Grouping</option>
-                    <option value="examiner">Group by Examiner</option>
-                    <option value="department">Group by Department</option>
-                    <option value="month">Group by Month</option>
-                  </select>
-                </div>
-                
-                <div className="w-1/2 flex justify-end">
-                  <div className="flex border border-gray-300 dark:border-gray-600 rounded-md overflow-hidden">
-                    <button
-                      onClick={() => setViewMode('list')}
-                      className={`flex items-center justify-center w-10 h-10 ${viewMode === 'list' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300' : 'bg-white dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-600'}`}
-                      title="List View"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path>
-                      </svg>
-                    </button>
-                    <button
-                      onClick={() => setViewMode('grid')}
-                      className={`flex items-center justify-center w-10 h-10 ${viewMode === 'grid' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300' : 'bg-white dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-600'}`}
-                      title="Grid View"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path>
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          {/* Loading Indicator */}
-          {loading && (
-            <div className="flex justify-center items-center py-20">
-              <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-500"></div>
-            </div>
-          )}
-          
-          {/* Error Message */}
-          {error && (
-            <div className={`mb-6 p-4 rounded-md bg-red-50 border border-red-200 text-red-600 ${isDarkMode ? 'bg-red-900/20 border-red-800 text-red-400' : ''}`}>
-              {error}
-            </div>
-          )}
-          
-          {/* Content */}
-          {/* Summary Stats */}
-          {!loading && !error && filteredCalculations.length > 0 && renderSummaryStats(filteredCalculations)}
-          
-          {/* Calculations Content */}
-          {!loading && !error && filteredCalculations.length > 0 && (
-            <div className="space-y-8">
-              {Object.entries(groupedCalculations).map(([groupName, groupCalcs]) => (
-                <div key={groupName} className="mb-6">
-                  <div className="flex justify-between items-center mb-4">
-                    <div className="flex items-center">
-                      <h2 className={`text-xl font-semibold ${textColor}`}>{groupName}</h2>
-                      
-                      <div className="mx-4 h-6 border-l border-gray-300 dark:border-gray-600"></div>
-                      
-                      <button
-                        onClick={toggleGroupMode}
-                        className={`text-sm flex items-center px-3 py-1.5 border ${borderColor} rounded-md ${groupBy !== 'none' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' : `${buttonBg} ${textColor}`}`}
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
-                        </svg>
-                        {groupBy === 'none' ? 'Group by Examiner' : 'Show All'}
-                      </button>
-                    </div>
-                    
-                    <div className="flex items-center space-x-3">
-                      {/* Favorites Toggle */}
-                      <button
-                        onClick={() => {/* TODO: Implement favorites filtering */}}
-                        className={`flex items-center text-gray-500 hover:text-yellow-500`}
-                        title="Show Favorites"
-                      >
-                        <span className="text-xl">⭐</span>
-                      </button>
-                      
-                      {/* View Toggle */}
-                      <div className="flex border rounded-md overflow-hidden">
-                        <button
-                          className={`px-3 py-1 flex items-center ${viewMode === 'grid' ? 'bg-blue-600 text-white' : `${buttonBg} ${textColor}`}`}
-                          onClick={() => setViewMode('grid')}
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path>
-                          </svg>
-                        </button>
-                        <button
-                          className={`px-3 py-1 flex items-center ${viewMode === 'list' ? 'bg-blue-600 text-white' : `${buttonBg} ${textColor}`}`}
-                          onClick={() => setViewMode('list')}
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16"></path>
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {viewMode === 'grid' 
-                    ? renderCalculationGrid(groupCalcs) 
-                    : renderCalculationList(groupCalcs)
-                  }
-                </div>
-              ))}
-            </div>
-          )}
-          
-          {/* Empty State */}
-          {!loading && !error && calculations.length === 0 && (
-            <div className="text-center py-12">
-              <svg className="mx-auto h-16 w-16 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-              </svg>
-              <h3 className={`mt-2 text-lg font-medium ${textColor}`}>No calculations found</h3>
-              <p className={`mt-1 ${secondaryText}`}>Start creating calculations to see them here.</p>
-              <button
-                onClick={() => navigate('/dashboard')}
-                className="mt-6 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-              >
-                Go to Dashboard
-              </button>
-            </div>
-          )}
-          
-          {/* No Results State */}
-          {!loading && !error && calculations.length > 0 && filteredCalculations.length === 0 && (
-            <div className="text-center py-8">
-              <p className={`${secondaryText} mb-4`}>No results found for your search criteria.</p>
-              <button
-                onClick={() => {
-                  setSearchQuery('');
-                  setDateFilter({ from: '', to: '' });
-                }}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-              >
-                Clear Filters
+                Delete ({selectedCalculations.length})
               </button>
             </div>
           )}
         </div>
+      </div>
+
+      {/* Content section with consistent padding */}
+      <div className="px-6 pb-6">
+        {/* Loading Indicator */}
+        {loading && (
+          <div className="flex justify-center items-center py-20">
+            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-500"></div>
+          </div>
+        )}
+
+        {/* Error Message */}
+        {error && (
+          <div className={`mb-6 p-4 rounded-md bg-red-50 border border-red-200 text-red-600 ${isDarkMode ? 'bg-red-900/20 border-red-800 text-red-400' : ''}`}>
+            {error}
+          </div>
+        )}
+
+        {/* Content */}
+        {/* Summary Stats */}
+        {!loading && !error && filteredCalculations.length > 0 && renderSummaryStats(filteredCalculations)}
+        
+        {/* Controls - Single Row */}
+        <div className="flex flex-col lg:flex-row justify-between items-stretch lg:items-center mb-6 gap-3">
+          {/* Search */}
+          <div className="relative flex-grow">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search calculations..."
+              className={`w-full h-10 p-2 pl-10 border ${borderColor} rounded-md ${isDarkMode ? 'bg-gray-700 text-white' : 'bg-white text-gray-900'}`}
+            />
+            <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+              <span className="text-gray-400 dark:text-gray-500">🔍</span>
+            </div>
+          </div>
+          
+          {/* Sort Options */}
+          <div className="flex items-center min-w-[180px]">
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className={`w-full h-10 px-3 py-2 pr-8 border ${borderColor} rounded-md text-sm ${isDarkMode ? 'bg-gray-700 text-white' : 'bg-white text-gray-900'}`}
+            >
+              <option value="date_desc">⇅ Newest First</option>
+              <option value="date_asc">⇅ Oldest First</option>
+              <option value="amount_desc">⇅ Amount (High to Low)</option>
+              <option value="amount_asc">⇅ Amount (Low to High)</option>
+              <option value="papers_desc">⇅ Papers (High to Low)</option>
+              <option value="papers_asc">⇅ Papers (Low to High)</option>
+              <option value="examiner_asc">⇅ Examiner (A-Z)</option>
+              <option value="examiner_desc">⇅ Examiner (Z-A)</option>
+            </select>
+          </div>
+          
+          {/* Date Range Picker */}
+          <div className="relative min-w-[160px]" ref={datePickerRef}>
+            <button
+              className={`w-full h-10 px-3 py-2 border ${borderColor} rounded-md text-sm ${isDarkMode ? 'bg-gray-700 text-white' : 'bg-white text-gray-900'} flex items-center`}
+              onClick={() => setShowDateRangePicker(!showDateRangePicker)}
+            >
+              <span className="mr-2 flex-shrink-0">📅</span>
+              <span className="truncate max-w-[120px]">{getDateRangeText()}</span>
+              {dateFilter.from && dateFilter.to && (
+                <span 
+                  className="ml-1 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 cursor-pointer flex-shrink-0" 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDateFilter({ from: '', to: '' });
+                    setDateRangeOption('all');
+                  }}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </span>
+              )}
+            </button>
+            
+            {/* Date Range Dropdown */}
+            {showDateRangePicker && (
+              <div className={`absolute z-30 mt-1 right-0 w-64 ${cardBg} rounded-md shadow-lg border ${borderColor} py-2 px-3`}>
+                <div className="space-y-1 mb-2">
+                  <button
+                    className={`w-full text-left px-2 py-1.5 rounded-md text-sm ${dateRangeOption === 'all' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100' : `${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}`}
+                    onClick={() => handleDateRangeChange('all')}
+                  >
+                    All Time
+                  </button>
+                  <button
+                    className={`w-full text-left px-2 py-1.5 rounded-md text-sm ${dateRangeOption === 'today' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100' : `${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}`}
+                    onClick={() => handleDateRangeChange('today')}
+                  >
+                    Today
+                  </button>
+                  <button
+                    className={`w-full text-left px-2 py-1.5 rounded-md text-sm ${dateRangeOption === 'week' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100' : `${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}`}
+                    onClick={() => handleDateRangeChange('week')}
+                  >
+                    This Week
+                  </button>
+                  <button
+                    className={`w-full text-left px-2 py-1.5 rounded-md text-sm ${dateRangeOption === 'month' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100' : `${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}`}
+                    onClick={() => handleDateRangeChange('month')}
+                  >
+                    This Month
+                  </button>
+                  <button
+                    className={`w-full text-left px-2 py-1.5 rounded-md text-sm ${dateRangeOption === 'year' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100' : `${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}`}
+                    onClick={() => handleDateRangeChange('year')}
+                  >
+                    This Year
+                  </button>
+                  <button
+                    className={`w-full text-left px-2 py-1.5 rounded-md text-sm ${dateRangeOption === 'custom' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100' : `${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}`}
+                    onClick={() => handleDateRangeChange('custom')}
+                  >
+                    Custom Range
+                  </button>
+                </div>
+                
+                {dateRangeOption === 'custom' && (
+                  <div className="space-y-2">
+                    <div>
+                      <label className={`block text-xs font-medium ${textColor} mb-1`}>From</label>
+                      <input
+                        type="date"
+                        value={dateFilter.from}
+                        onChange={(e) => setDateFilter({ ...dateFilter, from: e.target.value })}
+                        className={`w-full h-8 px-2 py-1 border ${borderColor} rounded-md text-xs ${isDarkMode ? 'bg-gray-700 text-white' : 'bg-white text-gray-900'}`}
+                      />
+                    </div>
+                    <div>
+                      <label className={`block text-xs font-medium ${textColor} mb-1`}>To</label>
+                      <input
+                        type="date"
+                        value={dateFilter.to}
+                        onChange={(e) => setDateFilter({ ...dateFilter, to: e.target.value })}
+                        className={`w-full h-8 px-2 py-1 border ${borderColor} rounded-md text-xs ${isDarkMode ? 'bg-gray-700 text-white' : 'bg-white text-gray-900'}`}
+                      />
+                    </div>
+                    <div className="flex justify-end mt-2">
+                      <button
+                        className="h-8 px-3 py-1 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                        onClick={() => setShowDateRangePicker(false)}
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          
+          {/* Export Buttons */}
+          <div className="flex gap-2">
+            {/* Export Dropdown */}
+            <div className="relative" ref={exportDropdownRef}>
+              <button
+                className={`flex items-center justify-center h-10 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 w-32 text-sm whitespace-nowrap`}
+                onClick={() => setShowExportDropdown(!showExportDropdown)}
+              >
+                <span className="mr-1">⬇️</span>
+                Export Reports
+              </button>
+              {/* Dropdown menu */}
+              {showExportDropdown && (
+                <div className="absolute z-30 mt-1 right-0 w-72 bg-white dark:bg-gray-800 rounded-md shadow-lg border border-gray-200 dark:border-gray-700 py-2">
+                  <div className="space-y-1">
+                    <button
+                      className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm flex items-center"
+                      onClick={() => {
+                        handleMergedReportsExport();
+                        setShowExportDropdown(false);
+                      }}
+                    >
+                      <span className="mr-2">📄</span>
+                      <div>
+                        <div className="font-medium">Merged Reports</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">Download all as a merged PDF</div>
+                      </div>
+                    </button>
+                    <button
+                      className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm flex items-center"
+                      onClick={() => {
+                        handleCustomReportsSelection();
+                        setShowExportDropdown(false);
+                      }}
+                    >
+                      <span className="mr-2">🔍</span>
+                      <div>
+                        <div className="font-medium">Custom Reports</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">Select specific examiners or calculations</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Export to Excel */}
+            <button
+              onClick={handleExportToExcel}
+              className={`flex items-center justify-center h-10 px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 w-32 text-sm whitespace-nowrap`}
+            >
+              <span className="mr-1">📊</span>
+              Export Sheet
+            </button>
+          </div>
+        </div>
+        
+        {/* Bulk Actions - Only show when items are selected */}
+        {selectedCalculations.length > 0 && (
+          <div className={`mb-4 p-3 ${cardBg} rounded-md border ${borderColor} flex justify-between items-center`}>
+            <div className={textColor}>
+              {selectedCalculations.length} calculation(s) selected
+            </div>
+            <div className="flex space-x-2">
+              <button
+                onClick={handleBulkExport}
+                className="h-10 px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Export Selected
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                className="h-10 px-3 py-2 text-sm bg-red-600 text-white rounded-md hover:bg-red-700"
+              >
+                Delete Selected
+              </button>
+              <button
+                onClick={() => setSelectedCalculations([])}
+                className="h-10 px-3 py-2 text-sm bg-gray-500 text-white rounded-md hover:bg-gray-600"
+              >
+                Clear Selection
+              </button>
+            </div>
+          </div>
+        )}
+        
+        {/* Empty State */}
+        {!loading && !error && calculations.length === 0 && (
+          <div className="text-center py-12">
+            <svg className="mx-auto h-16 w-16 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <h3 className={`mt-2 text-lg font-medium ${textColor}`}>No calculations found</h3>
+            <p className={`mt-1 ${secondaryText}`}>Start creating calculations to see them here.</p>
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="mt-6 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            >
+              Go to Dashboard
+            </button>
+          </div>
+        )}
+        
+        {/* No Results State */}
+        {!loading && !error && calculations.length > 0 && filteredCalculations.length === 0 && (
+          <div className="text-center py-8">
+            <p className={`${secondaryText} mb-4`}>No results found for your search criteria.</p>
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setDateFilter({ from: '', to: '' });
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+            >
+              Clear Filters
+            </button>
+          </div>
+        )}
+        
+        {/* Calculations Content */}
+        {!loading && !error && filteredCalculations.length > 0 && (
+          <div className="space-y-8">
+            {Object.entries(groupedCalculations).map(([groupName, groupCalcs]) => (
+              <div key={groupName} className="mb-6">
+                <div className="flex justify-between items-center mb-4">
+                  <div className="flex items-center">
+                    <h2 className={`text-xl font-semibold ${textColor}`}>{groupName}</h2>
+                    
+                    <div className="mx-4 h-6 border-l border-gray-300 dark:border-gray-600"></div>
+                    
+                    <button
+                      onClick={toggleGroupMode}
+                      className={`text-sm flex items-center px-3 py-1.5 border ${borderColor} rounded-md ${groupBy !== 'none' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' : `${buttonBg} ${textColor}`}`}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                      </svg>
+                      {groupBy === 'none' ? 'Group by Examiner' : 'Show All'}
+                    </button>
+                  </div>
+                  
+                  <div className="flex items-center space-x-3">
+                    {/* Favorites Toggle */}
+                    <button
+                      onClick={() => {/* TODO: Implement favorites filtering */}}
+                      className={`flex items-center text-gray-500 hover:text-yellow-500`}
+                      title="Show Favorites"
+                    >
+                      <span className="text-xl">⭐</span>
+                    </button>
+                    
+                    {/* View Toggle */}
+                    <div className="flex border rounded-md overflow-hidden">
+                      <button
+                        className={`px-3 py-1 flex items-center ${viewMode === 'grid' ? 'bg-blue-600 text-white' : `${buttonBg} ${textColor}`}`}
+                        onClick={() => setViewMode('grid')}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                        </svg>
+                      </button>
+                      <button
+                        className={`px-3 py-1 flex items-center ${viewMode === 'list' ? 'bg-blue-600 text-white' : `${buttonBg} ${textColor}`}`}
+                        onClick={() => setViewMode('list')}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                
+                {viewMode === 'grid' 
+                  ? renderCalculationGrid(groupCalcs) 
+                  : renderCalculationList(groupCalcs)
+                }
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </HistoryLayout>
   );

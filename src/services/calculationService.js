@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { supabase } from '../lib/supabase';
 import { formatDate } from '../utils/dateUtils';
+import { generatePDFBlob } from '../components/pdf/PDFRenderer';
 
 /**
  * Get examiner details
@@ -319,12 +320,14 @@ export const updateCalculation = async (calculationId, updates) => {
 };
 
 /**
- * Generate and save a PDF document for a calculation
+ * Generate a PDF for a calculation
  * @param {string} calculationId The calculation ID
- * @param {string} fileName The file name
+ * @param {string} fileName The file name to save
+ * @param {string} reportType The type of report to generate (default: 'individual')
+ * @param {object} options Additional options for the report
  * @returns {Promise} Promise object with document data
  */
-export const generateCalculationPDF = async (calculationId, fileName) => {
+export const generateCalculationPDF = async (calculationId, fileName, reportType = 'individual', options = {}) => {
   try {
     // Get the calculation data to include in the document metadata
     const { data: calcData, error: calcError } = await supabase
@@ -337,15 +340,138 @@ export const generateCalculationPDF = async (calculationId, fileName) => {
     
     console.log('Creating PDF document for calculation:', calculationId, 'with data:', calcData);
     
-    // Generate a mock PDF URL
-    // In a real app, this would generate a real PDF and upload it to storage
-    const mockPdfUrl = `https://example.com/pdfs/${fileName}`;
+    // Get examiner information
+    const { data: examiner, error: examinerError } = await supabase
+      .from('examiners')
+      .select('*')
+      .eq('id', calcData.examiner_id)
+      .single();
+      
+    if (examinerError) {
+      console.warn('Error getting examiner details:', examinerError);
+    }
     
-    // Update the calculation record with the PDF URL
+    let calculations = [];
+    let staffDetails = [];
+    let examinersData = [];
+    
+    // Based on report type, fetch the necessary data
+    if (reportType === 'individual') {
+      // For individual report, we only need this calculation and its staff details
+      calculations = [calcData];
+      
+      // Get staff details if available in options or fetch them
+      if (options.staffDetails) {
+        staffDetails = options.staffDetails;
+      } else {
+        // First get calculation_days that link to this calculation
+        try {
+          const { data: calcDays, error: calcDaysError } = await supabase
+            .from('calculation_days')
+            .select(`
+              evaluation_day_id
+            `)
+            .eq('calculation_id', calculationId);
+            
+          if (calcDaysError) {
+            console.warn('Error getting calculation days:', calcDaysError);
+          } else if (calcDays?.length > 0) {
+            const evalDayIds = calcDays.map(day => day.evaluation_day_id);
+            
+            // Get staff evaluations for these evaluation days
+            const { data: staffData, error: staffError } = await supabase
+              .from('staff_evaluations')
+              .select('*')
+              .in('evaluation_day_id', evalDayIds);
+              
+            if (staffError) {
+              console.warn('Error getting staff evaluations:', staffError);
+            } else if (staffData?.length > 0) {
+              staffDetails = staffData.map(staff => ({
+                name: staff.staff_name,
+                papersEvaluated: staff.papers_evaluated
+              }));
+            }
+          }
+        } catch (staffError) {
+          console.warn('Error getting staff details:', staffError);
+        }
+      }
+      
+    } else if (reportType === 'history') {
+      // For history report, we need all calculations for this examiner
+      const { data: examinerCalcs, error: calcsError } = await supabase
+        .from('calculation_documents')
+        .select('*')
+        .eq('examiner_id', calcData.examiner_id)
+        .order('created_at', { ascending: false });
+        
+      if (calcsError) {
+        console.warn('Error getting examiner calculations:', calcsError);
+        calculations = [calcData]; // Fallback to just this calculation
+      } else {
+        calculations = examinerCalcs;
+      }
+      
+    } else if (reportType === 'all-examiners' || reportType === 'custom') {
+      // For all-examiners or custom report, we need data for multiple examiners
+      // Use provided examinersData if available, otherwise fetch all examiners
+      if (options.examinersData) {
+        examinersData = options.examinersData;
+      } else {
+        // Get all examiners and their calculations
+        const { data: allExaminers, error: allExaminersError } = await supabase
+          .from('examiners')
+          .select('*')
+          .limit(options.limit || 100);
+          
+        if (allExaminersError) {
+          console.warn('Error getting all examiners:', allExaminersError);
+        } else if (allExaminers?.length > 0) {
+          // For each examiner, get their calculations
+          examinersData = await Promise.all(allExaminers.map(async (examiner) => {
+            const { data: examinerCalcs, error: examinerCalcsError } = await supabase
+              .from('calculation_documents')
+              .select('*')
+              .eq('examiner_id', examiner.id)
+              .order('created_at', { ascending: false });
+              
+            return {
+              examiner,
+              calculations: examinerCalcsError ? [] : examinerCalcs || []
+            };
+          }));
+        }
+      }
+    }
+    
+    // Prepare options for the PDF generation
+    const pdfOptions = {
+      ...options,
+      staffDetails,
+      examinersData
+    };
+    
+    // Generate the PDF blob directly with the appropriate report type
+    const blob = await generatePDFBlob(
+      examiner || { id: calcData.examiner_id, name: 'Unknown', department: 'Unknown' },
+      calculations || [calcData],
+      reportType,
+      pdfOptions
+    );
+    
+    // Create a URL from the blob
+    const pdfUrl = URL.createObjectURL(blob);
+    
+    if (!pdfUrl) {
+      throw new Error('No blob URL returned from PDF generation');
+    }
+    
+    // Store reference to the PDF URL in Supabase
     const { data: updatedCalc, error: updateError } = await supabase
       .from('calculation_documents')
       .update({ 
-        pdf_url: mockPdfUrl 
+        pdf_url: pdfUrl 
       })
       .eq('id', calculationId)
       .select()
@@ -357,7 +483,7 @@ export const generateCalculationPDF = async (calculationId, fileName) => {
     }
     
     console.log('Successfully updated calculation with PDF URL:', updatedCalc);
-    return updatedCalc;
+    return { ...updatedCalc, blob_url: pdfUrl };
   } catch (error) {
     console.error('Error generating PDF:', error);
     throw error;

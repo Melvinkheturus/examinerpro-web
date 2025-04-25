@@ -5,14 +5,11 @@ import { getExaminerById } from '../services/examinerService';
 import toast from 'react-hot-toast';
 import calculationService from '../services/calculationService';
 import staffService from '../services/staffService';
-import Sidebar from '../components/Sidebar';
-import TopBar from '../components/TopBar';
 import { useTheme } from '../contexts/ThemeContext';
 import CustomDatePicker from '../components/CustomDatePicker';
 import { supabase } from '../lib/supabase';
 import { formatDate } from '../utils/dateUtils';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import { generatePDFBlobURL } from '../components/pdf/PDFRenderer';
 /* eslint-enable no-unused-vars */
 
 // Evaluation Day class to manage evaluation data
@@ -619,454 +616,26 @@ const CalculationPage = () => {
       setDownloading(true);
       toast.loading('Generating PDF report...');
       
-      // Format values properly to ensure correct data is saved - move these outside the conditional
-      const totalPapers = parseInt(calculationResults.totalPapers) || 0;
-      const baseSalary = parseFloat(calculationResults.baseSalary) || 0;
-      const incentive = parseFloat(calculationResults.incentiveAmount) || 0;
-      const finalAmount = parseFloat(calculationResults.totalSalary) || 0;
-      const totalStaff = evaluationDays.reduce((sum, day) => sum + (parseInt(day.staffCount) || 0), 0);
-      
       // Generate a unique PDF filename
       const timestamp = new Date().getTime();
       const pdfFileName = `calculation_${examiner.id}_${timestamp}.pdf`;
-      const pdfUrl = `/pdfs/${pdfFileName}`;
       
       try {
-        // Only update the existing record with the PDF URL - no fallback insert
-        console.log('Updating existing calculation document with PDF URL:', calculationResults.calculationId);
+        // Call the service to generate PDF using react-pdf/renderer
+        const document = await calculationService.generateCalculationPDF(
+          calculationResults.calculationId,
+          pdfFileName
+        );
         
-        // Update the existing record with the PDF URL
-        const { data: updatedDoc, error: updateError } = await supabase
-          .from('calculation_documents')
-          .update({ pdf_url: pdfUrl })
-          .eq('id', calculationResults.calculationId)
-          .select();
-          
-        if (updateError) {
-          console.error('Error updating calculation with PDF URL:', updateError);
-          throw new Error(`Failed to update calculation with PDF URL: ${updateError.message}`);
+        if (!document || !document.blob_url) {
+          throw new Error('Failed to generate PDF document: No blob URL returned');
         }
         
-        console.log('Successfully updated calculation with PDF URL:', updatedDoc);
-        
-        // Format price with Indian Rupee format
-        const formatCurrency = (amount) => {
-          return new Intl.NumberFormat('en-IN', {
-            style: 'currency',
-            currency: 'INR',
-            minimumFractionDigits: 2
-          }).format(amount);
-        };
-        
-        // Generate staffDetails table HTML
-        const generateStaffDetails = () => {
-          let staffTablesHtml = '';
-          
-          evaluationDays.forEach((day, index) => {
-            const dateStr = formatDate(day.date, {
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric'
-            });
-            
-            // Calculate papers per staff for this day
-            const papersPerStaff = Math.floor(day.totalPapers / day.staffCount);
-            const remainder = day.totalPapers % day.staffCount;
-            
-            let staffRows = '';
-            for (let i = 0; i < day.staffCount; i++) {
-              // Add extra papers to the first staff member if there's a remainder
-              const extraPapers = i === 0 ? remainder : 0;
-              const staffPapers = papersPerStaff + extraPapers;
-              
-              staffRows += `
-                <tr>
-                  <td>Staff ${i + 1}</td>
-                  <td class="text-right">${staffPapers}</td>
-                </tr>
-              `;
-            }
-            
-            staffTablesHtml += `
-              <div class="evaluation-day">
-                <h4>Day ${index + 1} – ${dateStr}</h4>
-                <table class="staff-table">
-                  <thead>
-                    <tr>
-                      <th>Staff Name</th>
-                      <th class="text-right">Papers Evaluated</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${staffRows}
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <td><strong>Total Papers</strong></td>
-                      <td class="text-right"><strong>${day.totalPapers}</strong></td>
-                    </tr>
-                  </tfoot>
-                </table>
-                <p class="day-salary">Calculated Chief Examiner Salary for this day: ${formatCurrency(day.totalPapers * 20)}</p>
-              </div>
-            `;
-          });
-          
-          return staffTablesHtml;
-        };
-        
-        // Get current date in proper format
-        const currentDate = formatDate(new Date(), {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        });
-        
-        // Create a professional HTML representation of the calculation data
-        const htmlContent = `
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <title>Examiner Salary Calculation</title>
-              <meta charset="UTF-8">
-              <style>
-                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-                
-                body {
-                  font-family: 'Inter', sans-serif;
-                  padding: 0;
-                  margin: 0;
-                  color: #333;
-                  font-size: 11pt;
-                  line-height: 1.5;
-                }
-                
-                .wrapper {
-                  max-width: 210mm; /* A4 width */
-                  margin: 0 auto;
-                  padding: 20px;
-                }
-                
-                /* Header Section */
-                .header {
-                  text-align: center;
-                  margin-bottom: 30px;
-                  position: relative;
-                  padding-bottom: 15px;
-                  border-bottom: 1px solid #ddd;
-                }
-                
-                .college-name {
-                  font-size: 18pt;
-                  font-weight: 700;
-                  text-transform: uppercase;
-                  margin: 0;
-                  padding: 0;
-                  font-family: 'Arial', 'Helvetica', sans-serif;
-                }
-                
-                .college-affiliation {
-                  font-style: italic;
-                  font-size: 10pt;
-                  margin: 4px 0;
-                  font-family: 'Arial', 'Helvetica', sans-serif;
-                  font-weight: 600;
-                }
-                
-                .department {
-                  font-weight: 700;
-                  text-transform: uppercase;
-                  text-decoration: underline;
-                  margin: 8px 0;
-                  font-family: 'Arial', 'Helvetica', sans-serif;
-                }
-                
-                .header-date {
-                  position: absolute;
-                  top: 10px;
-                  right: 10px;
-                  font-size: 9pt;
-                }
-                
-                /* Examiner Info Section */
-                .examiner-info {
-                  border: 1px solid #ddd;
-                  border-radius: 8px;
-                  padding: 15px;
-                  margin-bottom: 25px;
-                  display: flex;
-                  flex-wrap: wrap;
-                }
-                
-                .info-label {
-                  width: 40%;
-                  font-weight: 500;
-                  padding: 5px 0;
-                }
-                
-                .info-value {
-                  width: 60%;
-                  padding: 5px 0;
-                }
-                
-                .examiner-title {
-                  display: inline-block;
-                  margin-left: 10px;
-                  background-color: #E3F2FD;
-                  border: 1px solid #90CAF9;
-                  border-radius: 4px;
-                  padding: 2px 8px;
-                  font-size: 9pt;
-                }
-                
-                /* Summary Table */
-                .summary-table {
-                  width: 100%;
-                  border-collapse: collapse;
-                  margin-bottom: 30px;
-                }
-                
-                .summary-table th,
-                .summary-table td {
-                  padding: 10px;
-                  border: 1px solid #ddd;
-                }
-                
-                .summary-table th {
-                  background-color: #f5f5f5;
-                  font-weight: 600;
-                  text-align: left;
-                }
-                
-                .summary-table td.value {
-                  text-align: right;
-                }
-                
-                .summary-table tr.total-row {
-                  background-color: #FFFDE7;
-                  font-weight: 700;
-                  color: #D32F2F;
-                }
-                
-                /* Detailed Report */
-                .detailed-report {
-                  margin-bottom: 30px;
-                }
-                
-                .section-title {
-                  font-size: 14pt;
-                  margin-bottom: 15px;
-                  padding-bottom: 5px;
-                  border-bottom: 2px solid #3F51B5;
-                  color: #3F51B5;
-                  font-weight: 600;
-                }
-                
-                .evaluation-day {
-                  margin-bottom: 25px;
-                  border-left: 3px solid #E0E0E0;
-                  padding-left: 15px;
-                }
-                
-                .evaluation-day h4 {
-                  margin: 0 0 10px 0;
-                  font-weight: 600;
-                  color: #455A64;
-                }
-                
-                .staff-table {
-                  width: 100%;
-                  border-collapse: collapse;
-                  margin-bottom: 10px;
-                }
-                
-                .staff-table th,
-                .staff-table td {
-                  padding: 8px;
-                  border: 1px solid #ddd;
-                  text-align: left;
-                }
-                
-                .staff-table th {
-                  background-color: #f5f5f5;
-                  font-weight: 500;
-                }
-                
-                .staff-table tfoot {
-                  background-color: #ECEFF1;
-                }
-                
-                .text-right {
-                  text-align: right !important;
-                }
-                
-                .day-salary {
-                  margin: 5px 0;
-                  font-weight: 500;
-                  color: #455A64;
-                }
-                
-                /* Footer */
-                .footer {
-                  margin-top: 40px;
-                  padding-top: 15px;
-                  border-top: 1px solid #ddd;
-                  text-align: center;
-                  font-size: 9pt;
-                  color: #757575;
-                }
-                
-                .footer-branding {
-                  font-weight: 600;
-                  margin-bottom: 5px;
-                }
-                
-                .copyright {
-                  font-size: 8pt;
-                }
-              </style>
-            </head>
-            <body>
-              <div class="wrapper">
-                <!-- Header Section -->
-                <div class="header">
-                  <div class="header-date">Report Generated: ${currentDate}</div>
-                  <h1 class="college-name">Guru Nanak College (Autonomous)</h1>
-                  <p class="college-affiliation">Affiliated to University of Madras, Chennai</p>
-                  <p class="department">Controller of Examinations (COE)</p>
-                </div>
-                
-                <!-- Examiner Info Section -->
-                <div class="examiner-info">
-                  <div class="info-label">Full Name:</div>
-                  <div class="info-value">
-                    <strong>${examiner.full_name || examiner.name}</strong>
-                    <span class="examiner-title">Chief Examiner</span>
-                  </div>
-                  
-                  <div class="info-label">Examiner ID:</div>
-                  <div class="info-value">${examiner.examiner_id || examiner.id}</div>
-                  
-                  <div class="info-label">Department:</div>
-                  <div class="info-value">${examiner.department || 'BCA'}</div>
-                  
-                  <div class="info-label">Email:</div>
-                  <div class="info-value">${examiner.email || 'examiner@gncollege.edu'}</div>
-                </div>
-                
-                <!-- Summary Table -->
-                <h2 class="section-title">Summary Calculation</h2>
-                <table class="summary-table">
-                  <tbody>
-                    <tr>
-                      <th>Total Papers</th>
-                      <td class="value">${totalPapers}</td>
-                    </tr>
-                    <tr>
-                      <th>Total Staff</th>
-                      <td class="value">${totalStaff}</td>
-                    </tr>
-                    <tr>
-                      <th>Total Evaluation Days</th>
-                      <td class="value">${evaluationDays.length}</td>
-                    </tr>
-                    <tr>
-                      <th>Base Salary</th>
-                      <td class="value">${formatCurrency(baseSalary)}</td>
-                    </tr>
-                    <tr>
-                      <th>Incentive (10%)</th>
-                      <td class="value">${formatCurrency(incentive)}</td>
-                    </tr>
-                    <tr class="total-row">
-                      <th>Final Amount</th>
-                      <td class="value">${formatCurrency(finalAmount)}</td>
-                    </tr>
-                  </tbody>
-                </table>
-                
-                <!-- Detailed Report -->
-                <h2 class="section-title">Detailed Calculation Report</h2>
-                <div class="detailed-report">
-                  ${generateStaffDetails()}
-                </div>
-                
-                <!-- Footer -->
-                <div class="footer">
-                  <p class="footer-branding">Generated via ExaminerPro — Center of Examination (COE) Automation System</p>
-                  <p class="copyright">© 2024 Guru Nanak College - Controller of Examinations</p>
-                </div>
-              </div>
-            </body>
-          </html>
-        `;
-        
-        try {
-          // Create a container for the PDF content
-          const container = document.createElement('div');
-          container.innerHTML = htmlContent;
-          container.style.position = 'absolute';
-          container.style.left = '-9999px'; // Off-screen
-          container.style.top = '0';
-          container.style.width = '210mm'; // A4 width
-          document.body.appendChild(container);
-          
-          // Create a PDF document with A4 size
-          const pdf = new jsPDF({
-            orientation: 'portrait',
-            unit: 'mm',
-            format: 'a4'
-          });
-          
-          // Convert HTML to canvas and add to PDF
-          const element = container.querySelector('.wrapper');
-          
-          await html2canvas(element, {
-            scale: 2,
-            useCORS: true,
-            letterRendering: true,
-            logging: false // Turn off verbose logging
-          }).then(canvas => {
-            // Calculate proper scaling to fit in PDF page
-            const imgWidth = pdf.internal.pageSize.getWidth() - 20; // 10mm margins on each side
-            const imgHeight = (canvas.height * imgWidth) / canvas.width;
-            
-            // Add the image to the PDF
-            const imgData = canvas.toDataURL('image/jpeg', 0.95);
-            pdf.addImage(imgData, 'JPEG', 10, 10, imgWidth, imgHeight);
-            
-            // Save the PDF
-            pdf.save(pdfFileName);
-          });
-          
-          // Clean up
-          document.body.removeChild(container);
+        // Open the PDF in a new tab
+        window.open(document.blob_url, '_blank');
           
           toast.dismiss();
-          toast.success('PDF downloaded successfully');
-        } catch (pdfError) {
-          console.error('Error generating PDF:', pdfError);
-          
-          // Fallback to HTML if PDF generation fails
-          const blob = new Blob([htmlContent], { type: 'text/html' });
-          const url = URL.createObjectURL(blob);
-          
-          // Create a link and trigger download
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = pdfFileName.replace('.pdf', '.html');
-          document.body.appendChild(link);
-          link.click();
-          
-          // Clean up
-          setTimeout(() => {
-            URL.revokeObjectURL(url);
-            document.body.removeChild(link);
-          }, 100);
-          
-          toast.dismiss();
-          toast.warning('PDF conversion failed. Downloaded as HTML instead.');
-        }
+        toast.success('PDF generated successfully');
       } catch (error) {
         console.error('Error generating PDF:', error);
         toast.dismiss();
@@ -1190,313 +759,327 @@ const CalculationPage = () => {
   };
 
   return (
-    <div className={`flex h-screen ${isDarkMode ? 'bg-gray-900' : 'bg-gray-100'}`}>
-      <Sidebar />
-      <div className="flex flex-col flex-1 overflow-hidden">
-        <TopBar />
-        <main className={`flex-1 overflow-auto p-6 ${isDarkMode ? 'bg-gray-900' : 'bg-gray-100'}`}>
-          {/* Header */}
-          <div className="max-w-4xl mx-auto mb-6">
-            <div className="flex justify-between items-center">
-              <div>
-                <h1 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'} flex items-center`}>
-                  <svg xmlns="http://www.w3.org/2000/svg" className="w-7 h-7 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  </svg>
-                  New Calculation
-                </h1>
-                <p className={`mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                  Create and process a new salary calculation
-                </p>
-              </div>
-              <button
-                onClick={() => navigate('/')}
-                className={`px-4 py-2 border rounded-md flex items-center ${
-                  isDarkMode ? 'border-gray-700 text-gray-300 hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-                Back to Dashboard
-              </button>
-            </div>
+    <>
+      {/* Draft Prompt Modal */}
+      {showDraftPrompt && <DraftPromptModal />}
+      
+      <div className="container mx-auto px-4 py-6">
+        {/* Page Header */}
+        <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center">
+          <div>
+            <h1 className={`text-2xl font-bold mb-2 flex items-center ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              </svg>
+              Calculation
+            </h1>
+            <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              Manage evaluation data and calculate payment for {examiner?.full_name || 'the examiner'}
+            </p>
           </div>
           
-          {/* Loading State */}
-          {loading && (
-            <div className="flex justify-center items-center py-20">
-              <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-500"></div>
-            </div>
-          )}
-          
-          {examiner && (
-            <>
-              <div className="mt-4">
-                {/* 2. Evaluation Schedule Section */}
-                <div className="mb-8 bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-                  <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white text-center">
-                    <span className="border-b-2 border-blue-500 pb-1">EVALUATION SCHEDULE</span>
-                  </h2>
-                  
-                  <div className="flex flex-row gap-4 mb-4">
-                    <div className="w-1/2">
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Evaluation Date
-                      </label>
-                      <div className="h-[38px]">
-                        <CustomDatePicker
-                          selectedDate={selectedDate ? new Date(selectedDate) : null}
-                          onChange={handleDateChange}
-                          placeholder="dd-mm-yyyy"
-                        />
-                      </div>
-                    </div>
-                    
-                    <div className="w-1/2">
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        No. of Examiners
-                      </label>
-                      <div className="h-[38px]">
-                        <input
-                          type="number"
-                          className="block w-full h-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                          value={staffCount}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            if (value === '') {
-                              // If empty, set to minimum valid value (1)
-                              setStaffCount(1);
-                            } else {
-                              const parsedValue = parseInt(value, 10);
-                              if (!isNaN(parsedValue)) {
-                                setStaffCount(Math.max(1, parsedValue));
-                              }
-                            }
-                          }}
-                          min="1"
-                          onFocus={(e) => e.target.select()}
-                        />
-                      </div>
+          <div className="flex mt-4 md:mt-0 space-x-2">
+            <button
+              onClick={() => navigate(-1)}
+              className={`px-4 py-2 border rounded-md flex items-center ${
+                isDarkMode 
+                  ? 'border-gray-700 text-gray-300 hover:bg-gray-700' 
+                  : 'border-gray-300 text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              Back
+            </button>
+            
+            <button
+              onClick={handleRefresh}
+              className={`px-4 py-2 border rounded-md flex items-center ${
+                isDarkMode 
+                  ? 'border-gray-700 text-gray-300 hover:bg-gray-700' 
+                  : 'border-gray-300 text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Reset
+            </button>
+          </div>
+        </div>
+        
+        {/* Loading State */}
+        {loading && (
+          <div className="flex justify-center items-center py-20">
+            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-500"></div>
+          </div>
+        )}
+        
+        {examiner && (
+          <>
+            <div className="mt-4">
+              {/* 2. Evaluation Schedule Section */}
+              <div className="mb-8 bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white text-center">
+                  <span className="border-b-2 border-blue-500 pb-1">EVALUATION SCHEDULE</span>
+                </h2>
+                
+                <div className="flex flex-row gap-4 mb-4">
+                  <div className="w-1/2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Evaluation Date
+                    </label>
+                    <div className="h-[38px]">
+                      <CustomDatePicker
+                        selectedDate={selectedDate ? new Date(selectedDate) : null}
+                        onChange={handleDateChange}
+                        placeholder="dd-mm-yyyy"
+                      />
                     </div>
                   </div>
                   
-                  <div className="flex flex-row gap-3 mt-4">
-                    <button
-                      className="inline-flex items-center justify-center w-full px-4 py-2 text-white text-sm font-medium bg-indigo-500 rounded-md hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                      onClick={() => handleEnterEvaluationData(-1)}
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                      </svg>
-                      Enter Evaluation Data
-                    </button>
-                    
-                    <button
-                      className="inline-flex items-center justify-center w-full px-4 py-2 text-white text-sm font-medium bg-blue-500 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                      onClick={() => handleAddDay()}
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
-                      </svg>
-                      Add Another Day
-                    </button>
+                  <div className="w-1/2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      No. of Examiners
+                    </label>
+                    <div className="h-[38px]">
+                      <input
+                        type="number"
+                        className="block w-full h-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        value={staffCount}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (value === '') {
+                            // If empty, set to minimum valid value (1)
+                            setStaffCount(1);
+                          } else {
+                            const parsedValue = parseInt(value, 10);
+                            if (!isNaN(parsedValue)) {
+                              setStaffCount(Math.max(1, parsedValue));
+                            }
+                          }
+                        }}
+                        min="1"
+                        onFocus={(e) => e.target.select()}
+                      />
+                    </div>
                   </div>
                 </div>
                 
-                {/* 3. Evaluation Summary Section */}
-                <div className="mb-8 bg-white dark:bg-gray-800 rounded-md shadow-sm p-6">
-                  <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white text-center">
-                    <span className="border-b-2 border-blue-500 pb-1">EVALUATION SUMMARY</span>
-                  </h2>
+                <div className="flex flex-row gap-3 mt-4">
+                  <button
+                    className="inline-flex items-center justify-center w-full px-4 py-2 text-white text-sm font-medium bg-indigo-500 rounded-md hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                    onClick={() => handleEnterEvaluationData(-1)}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                    </svg>
+                    Enter Evaluation Data
+                  </button>
                   
-                  <div className="overflow-x-auto">
-                    {evaluationDays.length === 0 ? (
-                      <div className="text-center py-4 text-gray-500 dark:text-gray-400">
-                        No evaluation days added yet. Add a day to begin.
-                      </div>
-                    ) : (
-                      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                        <thead className="bg-gray-50 dark:bg-gray-700 sticky top-0">
-                          <tr>
-                            <th scope="col" className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                              Date
-                            </th>
-                            <th scope="col" className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                              Staffs Count
-                            </th>
-                            <th scope="col" className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                              Papers Evaluated
-                            </th>
-                            <th scope="col" className="px-4 py-3 text-right text-sm font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                              Actions
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                          {console.log("Rendering evaluation days in table:", evaluationDays)}
-                          {evaluationDays.map((day, index) => {
-                            console.log(`Rendering day ${index}:`, day);
-                            return (
-                              <tr key={`day-${index}-${day.date}`} className={index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700'}>
-                                <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                                  {formatDate(day.date)}
-                                </td>
-                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
-                                  {day.staffCount}
-                                </td>
-                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
-                                  {day.totalPapers || 'Enter Details →'}
-                                </td>
-                                <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
-                                  <div className="flex items-center justify-end space-x-2">
-                                    <button
-                                      onClick={() => handleEnterEvaluationData(index)}
-                                      className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
-                                      title="Edit"
-                                    >
-                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                      </svg>
-                                    </button>
-                                    <button
-                                      onClick={() => handleRemoveDay(index)}
-                                      className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
-                                      title="Remove"
-                                    >
-                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                      </svg>
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                          {evaluationDays.length > 0 && (
-                            <tr className="bg-gray-100 dark:bg-gray-700">
+                  <button
+                    className="inline-flex items-center justify-center w-full px-4 py-2 text-white text-sm font-medium bg-blue-500 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    onClick={() => handleAddDay()}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
+                    </svg>
+                    Add Another Day
+                  </button>
+                </div>
+              </div>
+              
+              {/* 3. Evaluation Summary Section */}
+              <div className="mb-8 bg-white dark:bg-gray-800 rounded-md shadow-sm p-6">
+                <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white text-center">
+                  <span className="border-b-2 border-blue-500 pb-1">EVALUATION SUMMARY</span>
+                </h2>
+                
+                <div className="overflow-x-auto">
+                  {evaluationDays.length === 0 ? (
+                    <div className="text-center py-4 text-gray-500 dark:text-gray-400">
+                      No evaluation days added yet. Add a day to begin.
+                    </div>
+                  ) : (
+                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                      <thead className="bg-gray-50 dark:bg-gray-700 sticky top-0">
+                        <tr>
+                          <th scope="col" className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                            Date
+                          </th>
+                          <th scope="col" className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                            Staffs Count
+                          </th>
+                          <th scope="col" className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                            Papers Evaluated
+                          </th>
+                          <th scope="col" className="px-4 py-3 text-right text-sm font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                        {console.log("Rendering evaluation days in table:", evaluationDays)}
+                        {evaluationDays.map((day, index) => {
+                          console.log(`Rendering day ${index}:`, day);
+                          return (
+                            <tr key={`day-${index}-${day.date}`} className={index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700'}>
                               <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                                Total
+                                {formatDate(day.date)}
                               </td>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                                {evaluationDays.reduce((sum, day) => sum + day.staffCount, 0)}
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
+                                {day.staffCount}
                               </td>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                                {totalPapersEvaluated}
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
+                                {day.totalPapers || 'Enter Details →'}
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
+                                <div className="flex items-center justify-end space-x-2">
+                                  <button
+                                    onClick={() => handleEnterEvaluationData(index)}
+                                    className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                                    title="Edit"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                    </svg>
+                                  </button>
+                                  <button
+                                    onClick={() => handleRemoveDay(index)}
+                                    className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
+                                    title="Remove"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                  </button>
+                                </div>
                               </td>
                             </tr>
-                          )}
-                        </tbody>
-                      </table>
+                          );
+                        })}
+                        {evaluationDays.length > 0 && (
+                          <tr className="bg-gray-100 dark:bg-gray-700">
+                            <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                              Total
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                              {evaluationDays.reduce((sum, day) => sum + day.staffCount, 0)}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                              {totalPapersEvaluated}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                <div className="flex justify-between mt-6">
+                  <button
+                    onClick={handleRefresh}
+                    className="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Refresh Table
+                  </button>
+                  
+                  <button
+                    onClick={handleCalculateSalary}
+                    disabled={evaluationDays.length === 0 || calculating}
+                    className="inline-flex items-center px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                  >
+                    {calculating ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Calculating...
+                      </>
+                    ) : (
+                      <>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                        </svg>
+                        Calculate Salary
+                      </>
                     )}
+                  </button>
+                </div>
+              </div>
+              
+              {/* 4. Calculation Result Section */}
+              {calculationResults.calculated && (
+                <div className="bg-white dark:bg-gray-800 rounded-md shadow-sm p-6 mb-8">
+                  <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white text-center">
+                    <span className="border-b-2 border-blue-500 pb-1">CALCULATION RESULTS</span>
+                  </h2>
+                  
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <p className="text-lg text-gray-700 dark:text-gray-300 flex items-center">
+                        <span className="mr-2">🧾</span> Total Papers Evaluated
+                      </p>
+                      <p className="text-lg font-medium text-gray-900 dark:text-white">
+                        {Number(calculationResults.totalPapers || 0).toString()}
+                      </p>
+                    </div>
+                    
+                    <div className="flex justify-between items-center">
+                      <p className="text-lg text-gray-700 dark:text-gray-300 flex items-center">
+                        <span className="mr-2">💵</span> Base Salary
+                      </p>
+                      <p className="text-lg font-medium text-gray-900 dark:text-white">
+                        Rs.{Number(calculationResults.baseSalary || 0).toFixed(2)}
+                      </p>
+                    </div>
+                    
+                    <div className="flex justify-between items-center">
+                      <p className="text-lg text-gray-700 dark:text-gray-300 flex items-center">
+                        <span className="mr-2">🎯</span> Incentive Amount
+                      </p>
+                      <p className="text-lg font-medium text-gray-900 dark:text-white">
+                        Rs.{Number(calculationResults.incentiveAmount || 0).toFixed(2)}
+                      </p>
+                    </div>
+                    
+                    <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                      <div className="flex justify-between items-center">
+                        <p className="text-xl font-bold text-gray-700 dark:text-gray-300 flex items-center">
+                          <span className="mr-2">💰</span> Net Amount
+                        </p>
+                        <p className="text-xl font-bold text-red-600 dark:text-red-400">
+                          Rs.{Number(calculationResults.totalSalary || 0).toFixed(2)}
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="flex justify-between mt-6">
+                  {/* Final Action Buttons */}
+                  <div className="flex gap-4 mt-6">
                     <button
-                      onClick={handleRefresh}
-                      className="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                      onClick={handleDownloadPDF}
+                      disabled={downloading}
+                      className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                      Refresh Table
-                    </button>
-                    
-                    <button
-                      onClick={handleCalculateSalary}
-                      disabled={evaluationDays.length === 0 || calculating}
-                      className="inline-flex items-center px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-                    >
-                      {calculating ? (
-                        <>
-                          <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          Calculating...
-                        </>
-                      ) : (
-                        <>
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                          </svg>
-                          Calculate Salary
-                        </>
-                      )}
+                      <span className="mr-2">⬇️</span>
+                      {downloading ? 'Downloading...' : 'Download PDF'}
                     </button>
                   </div>
                 </div>
-                
-                {/* 4. Calculation Result Section */}
-                {calculationResults.calculated && (
-                  <div className="bg-white dark:bg-gray-800 rounded-md shadow-sm p-6 mb-8">
-                    <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white text-center">
-                      <span className="border-b-2 border-blue-500 pb-1">CALCULATION RESULTS</span>
-                    </h2>
-                    
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center">
-                        <p className="text-lg text-gray-700 dark:text-gray-300 flex items-center">
-                          <span className="mr-2">🧾</span> Total Papers Evaluated
-                        </p>
-                        <p className="text-lg font-medium text-gray-900 dark:text-white">
-                          {Number(calculationResults.totalPapers || 0).toString()}
-                        </p>
-                      </div>
-                      
-                      <div className="flex justify-between items-center">
-                        <p className="text-lg text-gray-700 dark:text-gray-300 flex items-center">
-                          <span className="mr-2">💵</span> Base Salary
-                        </p>
-                        <p className="text-lg font-medium text-gray-900 dark:text-white">
-                          Rs.{Number(calculationResults.baseSalary || 0).toFixed(2)}
-                        </p>
-                      </div>
-                      
-                      <div className="flex justify-between items-center">
-                        <p className="text-lg text-gray-700 dark:text-gray-300 flex items-center">
-                          <span className="mr-2">🎯</span> Incentive Amount
-                        </p>
-                        <p className="text-lg font-medium text-gray-900 dark:text-white">
-                          Rs.{Number(calculationResults.incentiveAmount || 0).toFixed(2)}
-                        </p>
-                      </div>
-                      
-                      <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-                        <div className="flex justify-between items-center">
-                          <p className="text-xl font-bold text-gray-700 dark:text-gray-300 flex items-center">
-                            <span className="mr-2">💰</span> Net Amount
-                          </p>
-                          <p className="text-xl font-bold text-red-600 dark:text-red-400">
-                            Rs.{Number(calculationResults.totalSalary || 0).toFixed(2)}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Final Action Buttons */}
-                    <div className="flex gap-4 mt-6">
-                      <button
-                        onClick={handleDownloadPDF}
-                        disabled={downloading}
-                        className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                      >
-                        <span className="mr-2">⬇️</span>
-                        {downloading ? 'Downloading...' : 'Download PDF'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </main>
+              )}
+            </div>
+          </>
+        )}
       </div>
-      {/* Draft Prompt Modal */}
-      <DraftPromptModal />
-    </div>
+    </>
   );
 };
 

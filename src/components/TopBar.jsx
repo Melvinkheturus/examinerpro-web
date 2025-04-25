@@ -3,7 +3,15 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { Logo } from './UIComponents';
 
-const TopBar = ({ collegeDetails = {}, pageTitle = "" }) => {
+const TopBar = ({ 
+  collegeDetails = {}, 
+  pageTitle = "", 
+  className = "", 
+  style = {},
+  isMobileView = false,
+  isMobileMenuOpen = false,
+  onMobileMenuToggle = () => {}
+}) => {
   // eslint-disable-next-line no-unused-vars
   const { user } = useAuth();
   // eslint-disable-next-line no-unused-vars
@@ -21,20 +29,35 @@ const TopBar = ({ collegeDetails = {}, pageTitle = "" }) => {
   const borderColor = isDarkMode ? 'border-gray-700' : 'border-gray-200';
 
   // Use consistent logo size now that we don't show the page title
-  const logoSize = 'h-16 w-16';
+  const logoSize = 'h-12 w-12';
   
   return (
-    <header className={`${bgColor} border-b ${borderColor} py-2 px-4`}>
-      <div className="flex flex-col md:flex-row items-center justify-center">
-        {/* Mobile ExaminerPro Logo - Only on small screens */}
-        <div className="md:hidden mb-2">
-          <Logo variant="topbar" className="h-6" />
-        </div>
-        
-        {/* College Info - Centered with logo first */}
-        <div className="flex items-center">
+    <div className={`${bgColor} ${className} w-full border-b ${borderColor} px-4`} style={style}>
+      {/* Mobile menu button - only on mobile */}
+      {isMobileView && (
+        <button 
+          className={`absolute left-4 top-1/2 transform -translate-y-1/2 p-2 rounded-md ${isDarkMode ? 'text-white' : 'text-gray-700'}`}
+          onClick={onMobileMenuToggle}
+          aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"}
+        >
+          {isMobileMenuOpen ? (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          )}
+        </button>
+      )}
+      
+      {/* Single Centered Card with College Info */}
+      <div className="flex flex-col items-center justify-center w-full py-2">
+        {/* Top section with logo and college name */}
+        <div className="flex items-center justify-center mb-2">
           {/* College Logo */}
-          <div className="flex-shrink-0 mr-3">
+          <div className="flex-shrink-0 mr-4">
             <img 
               src="/images/logo_gnc.png" 
               alt="Guru Nanak College Logo" 
@@ -42,19 +65,24 @@ const TopBar = ({ collegeDetails = {}, pageTitle = "" }) => {
             />
           </div>
           
-          {/* College Details */}
+          {/* College Name and Tagline */}
           <div className={`${textColor} text-center`}>
             <h2 className="text-lg md:text-xl font-bold leading-tight">{name}</h2>
             <p className="text-xs opacity-75 leading-snug">{tagline}</p>
-            {/* Divider above department */}
-            <div className={`border-t ${borderColor} my-1 mx-auto w-3/4`}></div>
-            <p className="text-xs md:text-sm font-medium leading-tight">{department}</p>
-            
-            {/* Page Title section removed */}
           </div>
         </div>
+        
+        {/* Divider line and department section */}
+        <div className={`w-full text-center border-t ${borderColor} pt-2 mt-1`}>
+          <p className={`text-xs md:text-sm font-medium leading-tight ${textColor}`}>{department}</p>
+        </div>
       </div>
-    </header>
+      
+      {/* Mobile ExaminerPro Logo - Only on small screens */}
+      <div className="md:hidden absolute left-4">
+        <Logo variant="topbar" className="h-6" />
+      </div>
+    </div>
   );
 };
 
