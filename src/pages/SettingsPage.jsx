@@ -10,7 +10,6 @@ import supabaseClient from '../services/supabaseClient';
 // Import icons
 import { 
   AdjustmentsHorizontalIcon, 
-  ArrowLeftIcon, 
   Cog6ToothIcon, 
   UserIcon, 
   PaintBrushIcon, 
@@ -234,24 +233,11 @@ const Settings = () => {
     <HistoryLayout>
       <div className="max-w-4xl mx-auto px-4 py-6 h-full flex flex-col">
         {/* Header */}
-        <div className="mb-6 flex justify-between items-center">
-          <div>
-            <h1 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'} flex items-center`}>
-              <Cog6ToothIcon className="w-7 h-7 mr-2" />
-              Settings
+        <div className="flex justify-between items-center mb-6">
+          <h1 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'} flex items-center`}>
+            <Cog6ToothIcon className="w-7 h-7 mr-2" />
+            Settings
           </h1>
-            <p className={`mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-              Customize your ExaminerPro experience
-            </p>
-          </div>
-          <button
-            onClick={() => navigate('/dashboard')}
-            className={`px-4 py-2 border rounded-md flex items-center ${
-              isDarkMode ? 'border-gray-700 text-gray-300 hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-            }`}
-          >
-            <ArrowLeftIcon className="w-4 h-4 mr-2" /> Back to Dashboard
-          </button>
         </div>
         
         {/* Loading Indicator */}

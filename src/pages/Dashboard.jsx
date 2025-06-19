@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import ExaminerList from '../components/ExaminerList';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -166,12 +166,10 @@ const Dashboard = () => {
     });
   };
   
-  // eslint-disable-next-line no-unused-vars
   const departments = [...new Set(examiners.map(e => e.department).filter(Boolean))];
   // eslint-disable-next-line no-unused-vars
   const positions = [...new Set(examiners.map(e => e.position).filter(Boolean))];
   
-  const mainBgColor = isDarkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-800';
   const cardBgColor = isDarkMode ? 'bg-gray-800' : 'bg-white';
   const borderColor = isDarkMode ? 'border-gray-700' : 'border-gray-200';
   
@@ -214,8 +212,8 @@ const Dashboard = () => {
   
   return (
     <>
-      {/* Main Content Area */}
-      <div className="max-w-7xl mx-auto px-4 py-6">
+      {/* Main Content Area - Full width container */}
+      <div className="w-full px-2 sm:px-4 py-6">
         
         {/* Welcome Message */}
         <div className="mb-6">
@@ -225,10 +223,10 @@ const Dashboard = () => {
         </div>
         
         {/* Redesigned Search, Sort & View Controls */}
-        <div className={`mb-6 ${cardBgColor} p-4 rounded-lg shadow-sm border ${borderColor}`}>
-          <div className="flex items-center gap-4">
+        <div className={`mb-6 ${cardBgColor} p-3 sm:p-4 rounded-lg shadow-sm border ${borderColor}`}>
+          <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-4">
             {/* Search Input */}
-            <div className="flex-1 relative">
+            <div className="w-full sm:flex-1 relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <SearchIcon className="h-5 w-5 text-gray-400" weight={isDarkMode ? "light" : "regular"} />
               </div>
@@ -246,10 +244,10 @@ const Dashboard = () => {
             </div>
             
             {/* Sort Dropdown Button */}
-            <div className="relative">
+            <div className="relative w-full sm:w-auto">
               <button
                 type="button"
-                className={`flex items-center px-3 py-2 border rounded-md text-sm font-medium ${
+                className={`w-full sm:w-auto flex items-center justify-between px-3 py-2 border rounded-md text-sm font-medium ${
                   isDarkMode 
                     ? 'bg-gray-700 border-gray-600 text-white hover:bg-gray-600' 
                     : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
@@ -412,7 +410,7 @@ const Dashboard = () => {
         </div>
         
         {/* Summary Info and Add Examiner Button */}
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3">
           <div className="flex items-center">
             <ProfileIcon className="h-5 w-5 text-blue-600 dark:text-blue-400 mr-2" weight="duotone" />
             <span className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
@@ -421,13 +419,13 @@ const Dashboard = () => {
           </div>
           
           {/* Add Examiner Button - Moved here */}
-          <a
-            href="/add-examiner.html"
-            className="flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          <Link
+            to="/add-examiner"
+            className="flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
           >
             <PlusIcon className="h-5 w-5 mr-2" weight="bold" />
             Add Examiner
-          </a>
+          </Link>
         </div>
         
         {/* Notification for new examiner */}
@@ -441,8 +439,8 @@ const Dashboard = () => {
           </div>
         )}
         
-        {/* Examiners List/Grid View */}
-        <div className="mt-6">
+        {/* Examiners List/Grid View - Full width container */}
+        <div className="w-full mt-6">
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">  
@@ -451,7 +449,7 @@ const Dashboard = () => {
               </div>
             </div>
           ) : examiners.length > 0 ? (
-            <>
+            <div className="w-full">
               <ExaminerList 
                 examiners={examiners} 
                 viewMode={viewMode} 
@@ -459,7 +457,7 @@ const Dashboard = () => {
                 onExaminerDeleted={handleExaminerDeleted}
                 isLoading={loading}
               />
-            </>
+            </div>
           ) : (
             <div className={`${cardBgColor} p-8 rounded-lg shadow text-center`}>
               <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -473,13 +471,13 @@ const Dashboard = () => {
                 }
               </p>
               <div className="mt-6">
-                <a
-                  href="/add-examiner.html"
+                <Link
+                  to="/add-examiner"
                   className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                 >
                   <PlusIcon className="-ml-1 mr-2 h-5 w-5" weight="bold" />
                   Add Examiner
-                </a>
+                </Link>
               </div>
             </div>
           )}
@@ -487,13 +485,13 @@ const Dashboard = () => {
         
         {/* Floating Add Button for Mobile */}
         <div className="fixed right-6 bottom-6 md:hidden">
-          <a
-            href="/add-examiner.html"
+          <Link
+            to="/add-examiner"
             className="p-4 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 flex items-center justify-center"
             aria-label="Add Examiner"
           >
             <PlusIcon className="h-6 w-6" weight="bold" />
-          </a>
+          </Link>
         </div>
       </div>
     </>

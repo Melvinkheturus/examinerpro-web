@@ -323,6 +323,9 @@ const ImageCropper = ({ image, onCrop, onCancel }) => {
         return;
       }
 
+      // Get the data URL for preview
+      const croppedImageUrl = canvas.toDataURL('image/jpeg', 0.95);
+
       // Convert to blob
       canvas.toBlob(
         (blob) => {
@@ -335,7 +338,7 @@ const ImageCropper = ({ image, onCrop, onCancel }) => {
 
           // Create a File object from the blob
           const file = new File([blob], 'profile-image.jpg', { type: 'image/jpeg' });
-          onCrop(file);
+          onCrop(croppedImageUrl, file);
           setLoading(false);
         },
         'image/jpeg',

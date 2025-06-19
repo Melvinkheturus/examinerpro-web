@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { getSettings, updateSetting } from '../services/settingsService';
+import { useTheme as useShadcnTheme } from '../components/ui/theme-provider';
 
 // Create the context
 const ThemeContext = createContext();
@@ -13,13 +14,32 @@ export const useTheme = () => {
   return context;
 };
 
+// Helper function to access shadcn theme safely
+const useShadcnThemeSafely = () => {
+  try {
+    return useShadcnTheme();
+  } catch (e) {
+    return null;
+  }
+};
+
 // ThemeProvider component
 export const ThemeProvider = ({ children }) => {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Always call the hook at the top level, even if we don't use the result
+  const newTheme = useShadcnThemeSafely();
 
   // Load theme setting from Supabase on component mount
   useEffect(() => {
+    // If using the new theme provider, sync with it
+    if (newTheme) {
+      setIsDarkMode(newTheme.theme === 'dark');
+      setIsLoading(false);
+      return;
+    }
+
     const loadThemeSetting = async () => {
       try {
         const settings = await getSettings();
@@ -49,10 +69,17 @@ export const ThemeProvider = ({ children }) => {
     };
 
     loadThemeSetting();
-  }, []);
+  }, [newTheme]);
 
   // Toggle theme function
   const toggleTheme = async () => {
+    // If using the new theme provider, use its setter
+    if (newTheme) {
+      newTheme.setTheme(newTheme.theme === 'light' ? 'dark' : 'light');
+      setIsDarkMode(newTheme.theme === 'dark');
+      return;
+    }
+
     try {
       const newDarkMode = !isDarkMode;
       setIsDarkMode(newDarkMode);
@@ -83,17 +110,21 @@ export const ThemeProvider = ({ children }) => {
 
   // Update HTML tag on theme change
   useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+    if (!newTheme) { // Only manage classes if we're not using the new theme provider
+      if (isDarkMode) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
     }
-  }, [isDarkMode]);
+  }, [isDarkMode, newTheme]);
 
   // Value to be provided by the context
   const value = {
-    isDarkMode,
-    toggleTheme,
+    isDarkMode: newTheme ? newTheme.theme === 'dark' : isDarkMode,
+    toggleTheme: newTheme ? 
+      () => newTheme.setTheme(newTheme.theme === 'light' ? 'dark' : 'light') : 
+      toggleTheme,
     isLoading
   };
 

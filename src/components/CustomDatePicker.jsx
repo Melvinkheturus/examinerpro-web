@@ -3,11 +3,14 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { useTheme } from '../contexts/ThemeContext';
 
-const CustomDatePicker = ({ selectedDate, onChange, placeholder }) => {
+const CustomDatePicker = ({ selectedDate, onChange, placeholder, className = '' }) => {
   const { isDarkMode } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [showYearView, setShowYearView] = useState(false);
+  const [yearRangeStart, setYearRangeStart] = useState(
+    selectedDate ? Math.floor(selectedDate.getFullYear() / 9) * 9 - 4 : Math.floor(new Date().getFullYear() / 9) * 9 - 4
+  );
   const inputRef = useRef(null);
   const containerRef = useRef(null);
   
@@ -18,6 +21,9 @@ const CustomDatePicker = ({ selectedDate, onChange, placeholder }) => {
       const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
       const year = selectedDate.getFullYear();
       setInputValue(`${day}-${month}-${year}`);
+      
+      // Update year range when selected date changes
+      setYearRangeStart(Math.floor(selectedDate.getFullYear() / 9) * 9 - 4);
     } else {
       setInputValue('');
     }
@@ -40,6 +46,18 @@ const CustomDatePicker = ({ selectedDate, onChange, placeholder }) => {
     
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen]);
+
+  // Add click outside handler
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target) && isOpen) {
+        setIsOpen(false);
+      }
+    };
+    
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isOpen]);
 
   // Add custom styles to head once on component mount
@@ -199,17 +217,20 @@ const CustomDatePicker = ({ selectedDate, onChange, placeholder }) => {
     }
   };
   
-  // Handle calendar icon click - improve toggle behavior
+  // Handle calendar icon click - only open the calendar on icon click
   const handleCalendarClick = (e) => {
     e.stopPropagation();
+    e.preventDefault();
     setIsOpen(!isOpen);
   };
   
   // Clear the date
   const handleClear = (e) => {
     e.stopPropagation();
+    e.preventDefault();
     setInputValue('');
     onChange(null);
+    setIsOpen(false);
   };
   
   // Handle date selection from the picker
@@ -225,29 +246,42 @@ const CustomDatePicker = ({ selectedDate, onChange, placeholder }) => {
   };
 
   // Handle year selection
-  const handleYearSelected = (date) => {
-    // After selecting a year, go back to month view
+  const handleYearSelected = (year) => {
+    if (!selectedDate) {
+      // If no date is selected, create a new date with the selected year and current month/day
+      const now = new Date();
+      const newDate = new Date(year, now.getMonth(), now.getDate());
+      onChange(newDate);
+    } else {
+      // If a date is already selected, update its year
+      const newDate = new Date(selectedDate);
+      newDate.setFullYear(year);
+      onChange(newDate);
+    }
     setShowYearView(false);
   };
   
   // Navigate to previous set of years
-  const navigateToPreviousYears = (date, changeYear) => {
-    const newDate = new Date(date);
-    newDate.setFullYear(date.getFullYear() - 9);
-    // Use changeYear without closing year view
-    changeYear(newDate.getFullYear());
-    // Important: Return null to prevent the view from changing
-    return null;
+  const navigateToPreviousYears = () => {
+    setYearRangeStart(yearRangeStart - 9);
   };
   
   // Navigate to next set of years
-  const navigateToNextYears = (date, changeYear) => {
+  const navigateToNextYears = () => {
+    setYearRangeStart(yearRangeStart + 9);
+  };
+  
+  // Change month handlers
+  const handlePrevMonth = (date, changeMonth) => {
     const newDate = new Date(date);
-    newDate.setFullYear(date.getFullYear() + 9);
-    // Use changeYear without closing year view
-    changeYear(newDate.getFullYear());
-    // Important: Return null to prevent the view from changing
-    return null;
+    const newMonth = newDate.getMonth() - 1;
+    changeMonth(newMonth);
+  };
+
+  const handleNextMonth = (date, changeMonth) => {
+    const newDate = new Date(date);
+    const newMonth = newDate.getMonth() + 1;
+    changeMonth(newMonth);
   };
 
   // Helper function to generate styles based on theme
@@ -352,48 +386,98 @@ const CustomDatePicker = ({ selectedDate, onChange, placeholder }) => {
       opacity: 0.5;
     }
     
-    /* Year selection view styles */
-    .react-datepicker__year-wrapper {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      max-width: 100%;
-      margin: 0.5rem auto;
-      gap: 0.3rem;
-      padding: 0 0.5rem;
-    }
-    
-    .react-datepicker__year-text {
-      padding: 0.3rem 0.2rem;
-      margin: 0;
-      display: inline-block;
-      border-radius: 0.25rem;
-      color: ${isDark ? '#D1D5DB' : '#374151'};
-      text-align: center;
-      width: 30%;
-      flex: 0 0 auto;
-    }
-    
-    .react-datepicker__year-text:hover {
-      background-color: ${isDark ? '#6B7280' : '#DBEAFE'};
-    }
-    
-    .react-datepicker__year-text--selected {
-      background-color: #3B82F6 !important;
-      color: white !important;
-    }
-    
-    /* Custom year header styles */
-    .year-header {
+    /* Custom header styles */
+    .custom-datepicker-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      width: 100%;
+      padding: 0.5rem;
     }
     
-    .year-header-text {
-      text-align: center;
+    .header-month-year {
+      display: flex;
+      align-items: center;
+      justify-content: center;
       flex-grow: 1;
+    }
+    
+    .month-year-text {
+      color: ${isDark ? '#F3F4F6' : '#1F2937'};
+      font-weight: 600;
+      cursor: pointer;
+    }
+    
+    .month-year-text:hover {
+      color: ${isDark ? '#60A5FA' : '#3B82F6'};
+    }
+    
+    .nav-button {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: ${isDark ? '#374151' : '#EFF6FF'};
+      border: none;
+      border-radius: 0.25rem;
+      color: ${isDark ? '#F3F4F6' : '#3B82F6'};
+      cursor: pointer;
+      padding: 0.25rem;
+      width: 1.5rem;
+      height: 1.5rem;
+    }
+    
+    .nav-button:hover {
+      background-color: ${isDark ? '#4B5563' : '#DBEAFE'};
+    }
+    
+    .nav-button:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+    
+    /* Year picker styles */
+    .year-picker {
+      padding: 0.5rem;
+      background-color: ${isDark ? '#1F2937' : '#FFFFFF'};
+      border-radius: 0.5rem;
+    }
+    
+    .year-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+    
+    .year-cell {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.5rem;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      color: ${isDark ? '#D1D5DB' : '#374151'};
+      font-size: 0.875rem;
+    }
+    
+    .year-cell:hover {
+      background-color: ${isDark ? '#4B5563' : '#DBEAFE'};
+    }
+    
+    .year-cell.selected {
+      background-color: #3B82F6;
+      color: white;
+    }
+    
+    .year-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.5rem;
+    }
+    
+    .year-range {
+      font-weight: 500;
+      color: ${isDark ? '#F3F4F6' : '#1F2937'};
     }
     
     @media (max-width: 640px) {
@@ -407,206 +491,173 @@ const CustomDatePicker = ({ selectedDate, onChange, placeholder }) => {
         line-height: 1.5rem;
       }
       
-      .react-datepicker__year-text {
-        width: 28%;
-        padding: 0.25rem 0.1rem;
+      .year-cell {
+        padding: 0.35rem;
         font-size: 0.8rem;
       }
     }
   `;
 
+  // Create year picker component
+  const YearPicker = ({ date }) => {
+    const currentYear = (selectedDate || new Date()).getFullYear();
+    const years = [];
+    
+    // Generate 9 years centered around the current year range
+    for (let i = 0; i < 9; i++) {
+      years.push(yearRangeStart + i);
+    }
+    
+    return (
+      <div className="year-picker">
+        <div className="year-nav">
+          <button 
+            className="nav-button" 
+            onClick={navigateToPreviousYears}
+            aria-label="Previous years"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+              <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
+            </svg>
+          </button>
+          
+          <span className="year-range">
+            {yearRangeStart} - {yearRangeStart + 8}
+          </span>
+          
+          <button 
+            className="nav-button" 
+            onClick={navigateToNextYears}
+            aria-label="Next years"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+              <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
+        
+        <div className="year-grid">
+          {years.map((year) => (
+            <div
+              key={year}
+              className={`year-cell ${year === currentYear ? 'selected' : ''}`}
+              onClick={() => handleYearSelected(year)}
+            >
+              {year}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="h-[38px] relative" ref={containerRef}>
-      {/* Our own custom input field for direct typing */}
-      <div className="relative w-full h-full">
+    <div className="relative" ref={containerRef}>
+      <div className="relative">
         <input
           ref={inputRef}
           type="text"
           value={inputValue}
           onChange={handleInputChange}
           placeholder={placeholder || "dd-mm-yyyy"}
+          className={`block w-full h-full rounded-md border-gray-300 border-2 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white ${className}`}
           autoComplete="off"
-          className="block w-full h-full pr-20 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white py-2"
+          readOnly={false}
+          onFocus={(e) => {
+            // Select the text when focused but don't open the calendar
+            e.target.select();
+          }}
         />
         <div className="absolute right-0 top-0 h-full flex items-center">
+          <button
+            type="button"
+            onClick={handleCalendarClick}
+            className="px-2.5 h-full text-gray-400 hover:text-gray-500 focus:outline-none"
+            tabIndex="-1"
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </button>
           {inputValue && (
             <button
               type="button"
               onClick={handleClear}
-              className="h-full px-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              aria-label="Clear date"
+              className="px-2 h-full text-gray-400 hover:text-gray-500 focus:outline-none"
+              tabIndex="-1"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
           )}
-          <div 
-            className="h-full px-3 flex items-center text-gray-400 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 border-l border-gray-200 dark:border-gray-600"
-            onClick={handleCalendarClick}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-          </div>
         </div>
       </div>
       
-      {/* Hidden DatePicker only used for the calendar popup */}
       {isOpen && (
-        <div className="absolute z-50" 
-          ref={containerRef}
-          style={{ 
-            position: 'absolute',
-            top: 'calc(100% + 5px)',
-            left: 0,
-            width: '100%',
-            maxWidth: '100%',
-            maxHeight: '400px',
-            boxShadow: 'none'
-          }}>
-          <div className="relative w-full">
+        <div className="absolute z-10 mt-1">
+          {showYearView ? (
+            <YearPicker 
+              date={selectedDate || new Date()} 
+            />
+          ) : (
             <DatePicker
               selected={selectedDate}
               onChange={handleDateSelected}
               inline
+              showMonthDropdown={false}
+              showYearDropdown={false}
+              dateFormat="dd-MM-yyyy"
               showPopperArrow={false}
-              onClickOutside={() => setIsOpen(false)}
-              showYearPicker={showYearView}
-              showMonthYearPicker={false}
-              onYearChange={handleYearSelected}
-              shouldCloseOnSelect={!showYearView}
-              yearItemNumber={9}
-              calendarClassName="w-full"
-              calendarStartDay={0}
+              disabledKeyboardNavigation
               renderCustomHeader={({
                 date,
+                changeMonth,
                 changeYear,
                 decreaseMonth,
                 increaseMonth,
                 prevMonthButtonDisabled,
                 nextMonthButtonDisabled,
               }) => (
-                <div className="flex items-center justify-between px-2 py-1">
-                  {!showYearView ? (
-                    <>
-                      <button
-                        onClick={decreaseMonth}
-                        disabled={prevMonthButtonDisabled}
-                        type="button"
-                        className={`p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 ${
-                          prevMonthButtonDisabled && "opacity-50 cursor-not-allowed"
-                        }`}
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          className="h-4 w-4"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M15 19l-7-7 7-7"
-                          />
-                        </svg>
-                      </button>
-                      
-                      {/* Month/Year display that toggles year picker */}
-                      <button
-                        onClick={toggleYearView}
-                        className="text-sm font-medium px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
-                      >
-                        {date.toLocaleString('default', { month: 'long', year: 'numeric' })}
-                      </button>
-                      
-                      <button
-                        onClick={increaseMonth}
-                        disabled={nextMonthButtonDisabled}
-                        type="button"
-                        className={`p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 ${
-                          nextMonthButtonDisabled && "opacity-50 cursor-not-allowed"
-                        }`}
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          className="h-4 w-4"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M9 5l7 7-7 7"
-                          />
-                        </svg>
-                      </button>
-                    </>
-                  ) : (
-                    <div className="year-header">
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          navigateToPreviousYears(date, changeYear);
-                        }}
-                        type="button"
-                        className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          className="h-4 w-4"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M15 19l-7-7 7-7"
-                          />
-                        </svg>
-                      </button>
-                      
-                      <span className="year-header-text text-sm font-medium">
-                        Select Year
-                      </span>
-                      
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          navigateToNextYears(date, changeYear);
-                        }}
-                        type="button"
-                        className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          className="h-4 w-4"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M9 5l7 7-7 7"
-                          />
-                        </svg>
-                      </button>
-                    </div>
-                  )}
+                <div className="custom-datepicker-header">
+                  <button
+                    className="nav-button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handlePrevMonth(date, changeMonth);
+                    }}
+                    disabled={prevMonthButtonDisabled}
+                    aria-label="Previous Month"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                      <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                  <div className="header-month-year">
+                    <span
+                      className="month-year-text"
+                      onClick={toggleYearView}
+                    >
+                      {date.toLocaleString('default', { month: 'long' })} {date.getFullYear()}
+                    </span>
+                  </div>
+                  <button
+                    className="nav-button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleNextMonth(date, changeMonth);
+                    }}
+                    disabled={nextMonthButtonDisabled}
+                    aria-label="Next Month"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                      <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+                    </svg>
+                  </button>
                 </div>
               )}
             />
-          </div>
+          )}
         </div>
       )}
     </div>

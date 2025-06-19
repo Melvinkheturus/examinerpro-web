@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
 import { useAuth } from '../contexts/AuthContext';
-import AuthLayout from './AuthLayout';
+import LoginLayout from './LoginLayout';
 
 const ResetPassword = () => {
   const [password, setPassword] = useState('');
@@ -73,7 +73,7 @@ const ResetPassword = () => {
   };
 
   return (
-    <AuthLayout>
+    <LoginLayout>
       <div className="animate__animated animate__fadeInRight h-full flex items-center justify-center">
         <div className="bg-white bg-opacity-90 rounded-lg shadow-md overflow-hidden transform transition-all hover:scale-105 w-full">
           <div className="px-4 py-5 sm:p-6">
@@ -202,7 +202,7 @@ const ResetPassword = () => {
           </div>
         </div>
       </div>
-    </AuthLayout>
+    </LoginLayout>
   );
 };
 

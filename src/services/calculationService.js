@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { supabase } from '../lib/supabase';
 import { formatDate } from '../utils/dateUtils';
-import { generatePDFBlob } from '../components/pdf/PDFRenderer';
+import { saveAs } from 'file-saver';
 
 /**
  * Get examiner details
@@ -42,7 +42,7 @@ export const saveCalculation = async (calculationData) => {
       calculation_name: calculationData.name || `Calculation ${formatDate(new Date())}`,
       daily_rate: parseFloat(calculationData.dailyRate) || 0,
       paper_rate: parseFloat(calculationData.paperRate) || 0,
-      total_days: parseInt(calculationData.evaluationDays?.length) || 0,
+      total_days: calculationData.evaluationDays ? calculationData.evaluationDays.length : 0,
       total_papers: parseInt(calculationData.totalPapers) || 0,
       base_salary: parseFloat(calculationData.baseSalary) || 0,
       incentive_amount: parseFloat(calculationData.incentiveAmount) || 0,
@@ -264,16 +264,26 @@ export const getCalculationById = async (calculationId) => {
           
         if (staffError) throw staffError;
         
-        const totalPapers = staffEvaluations?.reduce((sum, staff) => sum + staff.papers_evaluated, 0) || 0;
+        // Convert papers_evaluated to numbers to ensure proper calculation
+        const staffWithNumericPapers = staffEvaluations?.map(staff => ({
+          ...staff,
+          papers_evaluated: parseInt(staff.papers_evaluated || 0, 10)
+        })) || [];
+        
+        // Calculate total papers, ensuring numeric values
+        const totalPapers = staffWithNumericPapers.reduce(
+          (sum, staff) => sum + (staff.papers_evaluated || 0), 
+          0
+        );
         
         return {
           ...day,
-          staff_count: staffEvaluations?.length || 0,
+          staff_count: staffWithNumericPapers.length || 0,
           total_papers: totalPapers,
-          staffDetails: staffEvaluations?.map(staff => ({
+          staff: staffWithNumericPapers.map(staff => ({
             id: staff.id,
-            name: staff.staff_name,
-            papersEvaluated: staff.papers_evaluated
+            staff_name: staff.staff_name,
+            papers_evaluated: staff.papers_evaluated,
           })) || []
         };
       }));
@@ -285,9 +295,20 @@ export const getCalculationById = async (calculationId) => {
     // For now, just include the main document in the documents array
     const documents = processedCalculation ? [processedCalculation] : [];
 
+    // Calculate and update the total papers count for the calculation
+    const totalPapers = evaluationDays.reduce(
+      (sum, day) => sum + (day.total_papers || 0), 
+      0
+    );
+
+    // Calculate total days from evaluation days array if current value is 0
+    const totalDays = processedCalculation.total_days || evaluationDays.length || 0;
+
     return {
       ...processedCalculation,
       evaluationDays,
+      total_papers: totalPapers > 0 ? totalPapers : processedCalculation.total_papers, // Use calculated total if available
+      total_days: totalDays, // Use calculated total days
       documents: documents || []
     };
   } catch (error) {
@@ -336,7 +357,14 @@ export const generateCalculationPDF = async (calculationId, fileName, reportType
       .eq('id', calculationId)
       .single();
       
-    if (calcError) throw calcError;
+    if (calcError) {
+      console.error('Failed to fetch calculation data:', calcError);
+      throw new Error('Failed to fetch calculation data: ' + calcError.message);
+    }
+    
+    if (!calcData) {
+      throw new Error('Calculation data not found for ID: ' + calculationId);
+    }
     
     console.log('Creating PDF document for calculation:', calculationId, 'with data:', calcData);
     
@@ -369,6 +397,7 @@ export const generateCalculationPDF = async (calculationId, fileName, reportType
           const { data: calcDays, error: calcDaysError } = await supabase
             .from('calculation_days')
             .select(`
+              id,
               evaluation_day_id
             `)
             .eq('calculation_id', calculationId);
@@ -377,6 +406,21 @@ export const generateCalculationPDF = async (calculationId, fileName, reportType
             console.warn('Error getting calculation days:', calcDaysError);
           } else if (calcDays?.length > 0) {
             const evalDayIds = calcDays.map(day => day.evaluation_day_id);
+            
+            // First, get the evaluation days to retrieve dates
+            const { data: evalDays, error: evalDaysError } = await supabase
+              .from('evaluation_days')
+              .select('id, evaluation_date')
+              .in('id', evalDayIds);
+              
+            if (evalDaysError) {
+              console.warn('Error getting evaluation days:', evalDaysError);
+            } else {
+              // Create a map of evaluation day ID to date for quick lookup
+              const evalDayDateMap = {};
+              evalDays.forEach(day => {
+                evalDayDateMap[day.id] = day.evaluation_date;
+              });
             
             // Get staff evaluations for these evaluation days
             const { data: staffData, error: staffError } = await supabase
@@ -387,10 +431,16 @@ export const generateCalculationPDF = async (calculationId, fileName, reportType
             if (staffError) {
               console.warn('Error getting staff evaluations:', staffError);
             } else if (staffData?.length > 0) {
+                // Map evaluation dates to staff records using the lookup map
               staffDetails = staffData.map(staff => ({
-                name: staff.staff_name,
-                papersEvaluated: staff.papers_evaluated
+                  evaluationDate: evalDayDateMap[staff.evaluation_day_id] || null,
+                  evaluation_day_id: staff.evaluation_day_id,
+                  staffName: staff.staff_name,
+                  papersEvaluated: staff.papers_evaluated || 0
               }));
+                
+                console.log(`Fetched ${staffDetails.length} staff evaluations across ${evalDays.length} evaluation days`);
+              }
             }
           }
         } catch (staffError) {
@@ -453,39 +503,261 @@ export const generateCalculationPDF = async (calculationId, fileName, reportType
     };
     
     // Generate the PDF blob directly with the appropriate report type
-    const blob = await generatePDFBlob(
-      examiner || { id: calcData.examiner_id, name: 'Unknown', department: 'Unknown' },
-      calculations || [calcData],
+    console.log('Generating PDF blob with data', {
+      examinerPresent: !!examiner,
+      calculationsCount: calculations?.length || 0,
       reportType,
-      pdfOptions
-    );
+      staffDetailsCount: staffDetails?.length || 0
+    });
     
-    // Create a URL from the blob
-    const pdfUrl = URL.createObjectURL(blob);
-    
-    if (!pdfUrl) {
-      throw new Error('No blob URL returned from PDF generation');
+    // Make sure we have valid data before generating
+    if (!examiner && reportType === 'individual') {
+      console.warn('Warning: Generating individual report without examiner data');
     }
     
-    // Store reference to the PDF URL in Supabase
-    const { data: updatedCalc, error: updateError } = await supabase
-      .from('calculation_documents')
-      .update({ 
-        pdf_url: pdfUrl 
-      })
-      .eq('id', calculationId)
-      .select()
-      .single();
+    if (!calculations || calculations.length === 0) {
+      console.warn('Warning: No calculations data for PDF generation');
+    }
+    
+    // Import the PDFRenderer dynamically to avoid circular dependencies
+    const PDFRenderer = await import('../components/pdf/PDFRenderer');
+    
+    if (!PDFRenderer || !PDFRenderer.generatePDFBlob) {
+      console.error('Failed to import PDFRenderer or generatePDFBlob function');
+      throw new Error('PDF generation failed: Could not import PDF generator');
+    }
+    
+    console.log('Successfully imported PDFRenderer:', !!PDFRenderer);
+    
+    try {
+      // Generate the PDF blob using the imported function
+      const pdfBlob = await PDFRenderer.generatePDFBlob(
+        examiner || { id: calcData.examiner_id, name: 'Unknown', department: 'Unknown' },
+        calculations || [calcData],
+        reportType,
+        pdfOptions
+      );
       
-    if (updateError) {
-      console.error('Error updating calculation with PDF URL:', updateError);
-      throw updateError;
+      if (!pdfBlob) {
+        console.error('PDF generation failed: No blob returned from generatePDFBlob');
+        throw new Error('PDF generation failed: No blob returned');
+      }
+      
+      console.log('Successfully generated PDF blob of size:', pdfBlob.size, 'bytes');
+      
+      // Map the report type from internal type to schema type
+      let schemaReportType = 'individual report'; // default
+      if (reportType === 'individual') {
+        schemaReportType = 'individual report';
+      } else if (reportType === 'history') {
+        schemaReportType = 'examiner report';
+      } else if (reportType === 'all-examiners') {
+        schemaReportType = 'merged report';
+      } else if (reportType === 'custom') {
+        schemaReportType = 'custom report';
+      }
+      
+      // Create a proper report name based on type and date
+      const timestamp = new Date().toISOString().slice(0, 10);
+      const examinerName = examiner ? examiner.full_name || examiner.name : 'Unknown';
+      
+      // Create a filename-friendly version of the report name (no spaces or special chars)
+      const reportName = (() => {
+        switch (schemaReportType) {
+          case 'individual report':
+            return `${examinerName} - Individual Report (${timestamp})`;
+          case 'examiner report':
+            return `${examinerName} - Full History Report (${timestamp})`;
+          case 'merged report':
+            return `Merged Examiners Report (${timestamp})`;
+          case 'custom report':
+            return `Custom Report (${timestamp})`;
+          default:
+            return `Report ${timestamp}`;
+        }
+      })();
+      
+      // Create a proper filename for downloads
+      const safeFilename = fileName || reportName.replace(/[^a-zA-Z0-9-_() ]/g, '');
+      const downloadFilename = safeFilename.endsWith('.pdf') ? safeFilename : `${safeFilename}.pdf`;
+      
+      // Store reference to the PDF in the pdf_documents table
+      const pdfDocumentData = {
+        examiner_id: examiner?.id || calcData.examiner_id,
+        report_type: schemaReportType,
+        calculation_id: reportType === 'individual' ? calculationId : null,
+        filters: options.filters ? JSON.stringify(options.filters) : null,
+        report_name: reportName,
+        is_favorite: false
+      };
+      
+      console.log('Saving PDF document metadata to pdf_documents table:', pdfDocumentData);
+      
+      // Save metadata to database
+      let savedPdfDoc = null;
+      try {
+        const { data: pdfDocData, error: pdfDocError } = await supabase
+          .from('pdf_documents')
+          .insert(pdfDocumentData)
+          .select()
+          .single();
+        
+        if (pdfDocError) {
+          console.error('Error saving to pdf_documents:', pdfDocError);
+          // Continue even if metadata save fails
+        } else {
+          console.log('Successfully saved to pdf_documents:', pdfDocData);
+          savedPdfDoc = pdfDocData;
+        }
+      } catch (metadataError) {
+        console.error('Error saving PDF metadata:', metadataError);
+        // Continue even if metadata save fails
+      }
+      
+      // Return all necessary data including the blob itself for direct use
+      return { 
+        ...savedPdfDoc,
+        blob: pdfBlob,
+        download_filename: downloadFilename
+      };
+    } catch (pdfError) {
+      console.error('Error in PDF generation process:', pdfError);
+      throw new Error('Failed to generate PDF: ' + (pdfError.message || 'Unknown error'));
     }
-    
-    console.log('Successfully updated calculation with PDF URL:', updatedCalc);
-    return { ...updatedCalc, blob_url: pdfUrl };
   } catch (error) {
     console.error('Error generating PDF:', error);
+    throw error;
+  }
+};
+
+/**
+ * Generate and download a PDF for a calculation - simplified direct approach
+ * @param {Object} params Calculation parameters
+ * @returns {Promise} Promise object with download result
+ */
+export const downloadCalculationPDF = async (params) => {
+  try {
+    console.log('Starting PDF download with params:', params);
+    
+    // If we have a pdfDocumentId, we need to regenerate the PDF from the calculation data
+    // since we're not storing PDFs or blob URLs in the database
+    let calculationId = params.calculationId;
+    let reportType = params.reportType || 'individual';
+    
+    if (params.pdfDocumentId) {
+      // Get the PDF document metadata to determine what to regenerate
+      const { data: pdfDoc, error: pdfDocError } = await supabase
+        .from('pdf_documents')
+        .select('calculation_id, report_type, report_name')
+        .eq('id', params.pdfDocumentId)
+        .single();
+        
+      if (pdfDocError) {
+        console.error('Error retrieving PDF document metadata:', pdfDocError);
+        throw new Error('Could not find PDF document metadata');
+      }
+      
+      // Use the calculation_id and report_type from the document
+      calculationId = pdfDoc.calculation_id || params.calculationId;
+      reportType = pdfDoc.report_type?.split(' ')[0] || reportType; // Convert 'individual report' to 'individual'
+      
+      if (!calculationId) {
+        throw new Error('No calculation ID found for PDF document');
+      }
+    }
+    
+    // Generate the PDF
+    console.log(`Generating ${reportType} PDF for calculation ${calculationId}`);
+    const pdfDocument = await generateCalculationPDF(
+      calculationId,
+      params.fileName,
+      reportType,
+      params.options || {}
+    );
+    
+    if (!pdfDocument) {
+      console.error('PDF generation failed: No document returned');
+      throw new Error('PDF generation failed - no document returned');
+    }
+    
+    if (!pdfDocument.blob) {
+      console.error('PDF generation failed: No blob in document', pdfDocument);
+      throw new Error('PDF generation failed - no blob produced');
+    }
+    
+    console.log('PDF generation successful, blob size:', pdfDocument.blob.size, 'bytes');
+    
+    // Prepare filename
+    let filename = pdfDocument.download_filename || 
+                  params.fileName || 
+                  `ExaminerPro_Report_${new Date().getTime()}.pdf`;
+    
+    // Ensure it has .pdf extension
+    if (!filename.toLowerCase().endsWith('.pdf')) {
+      filename += '.pdf';
+    }
+    
+    // Ensure the filename is valid
+    filename = filename.replace(/[/\\?%*:|"<>]/g, '-');
+    
+    console.log(`PDF blob ready for download: ${pdfDocument.blob.size} bytes, filename: ${filename}`);
+    
+    // Create a download URL from the blob
+    const downloadUrl = URL.createObjectURL(pdfDocument.blob);
+    
+    // Handle preview in a new tab if requested
+    if (params.openPreview) {
+      console.log('Opening PDF preview in new tab');
+      window.open(downloadUrl, '_blank');
+    }
+    
+    // DIRECT DOWNLOAD APPROACH: Create and click an anchor element
+    try {
+      console.log('Initiating direct download via DOM approach');
+      
+      // Create the anchor element for download
+      const downloadLink = document.createElement('a');
+      downloadLink.href = downloadUrl;
+      downloadLink.download = filename; // This is the key attribute that forces download
+      downloadLink.type = 'application/pdf';
+      downloadLink.style.display = 'none';
+      
+      // Add to document, trigger click, and remove
+      document.body.appendChild(downloadLink);
+      console.log('Triggering download click...');
+      downloadLink.click();
+      
+      // Remove the download link after a short delay
+      setTimeout(() => {
+        if (document.body.contains(downloadLink)) {
+          document.body.removeChild(downloadLink);
+        }
+        console.log('Download link removed');
+      }, 100);
+      
+      // Clean up the download URL after a delay
+      setTimeout(() => {
+        URL.revokeObjectURL(downloadUrl);
+        console.log('Download URL revoked');
+      }, 2000);
+      
+      console.log('PDF download process completed successfully');
+      return true;
+    } catch (downloadError) {
+      console.error('Download approach failed:', downloadError);
+      
+      // Fallback to file-saver
+      console.log('Falling back to file-saver library');
+      try {
+        saveAs(pdfDocument.blob, filename);
+        return true;
+      } catch (saveAsError) {
+        console.error('file-saver also failed:', saveAsError);
+        throw new Error('All download methods failed - cannot download PDF');
+      }
+    }
+  } catch (error) {
+    console.error('PDF download process failed:', error);
     throw error;
   }
 };
@@ -519,28 +791,6 @@ export const downloadCalculationDocument = async (documentPath) => {
 };
 
 /**
- * Generate and download a PDF for a calculation
- * @param {Object} params Calculation parameters
- * @returns {Promise} Promise object with download result
- */
-export const downloadCalculationPDF = async (params) => {
-  try {
-    // Generate PDF first
-    const document = await generateCalculationPDF(params.calculationId, params.fileName);
-    
-    // Then download it
-    if (document && document.file_path) {
-      return await downloadCalculationDocument(document.file_path);
-    }
-    
-    throw new Error('Failed to generate PDF document');
-  } catch (error) {
-    console.error('Error downloading calculation PDF:', error);
-    throw error;
-  }
-};
-
-/**
  * Get all calculations for an examiner
  * @param {string} examinerId The examiner ID
  * @returns {Promise} Promise object with calculations data
@@ -562,7 +812,7 @@ export const getCalculationsByExaminer = async (examinerId) => {
       console.log('Examiner check result:', examinerCheck);
     }
 
-    // Use only columns that exist in the table according to the schema
+    // FIXED: Remove pdf_url from selected columns to avoid 400 error
     let { data, error } = await supabase
       .from('calculation_documents')
       .select(`
@@ -573,8 +823,7 @@ export const getCalculationsByExaminer = async (examinerId) => {
         total_staff,
         base_salary,
         incentive,
-        final_amount,
-        pdf_url
+        final_amount
       `)
       .eq('examiner_id', examinerId);
       
@@ -596,28 +845,65 @@ export const getCalculationsByExaminer = async (examinerId) => {
       console.log('Sample calculation after sorting:', data[0]);
       
       // Process data to standardize field names for backward compatibility with the UI
-      data.forEach(calc => {
+      for (const calc of data) {
         // Map the correct column names to what the UI expects
         calc.incentive_amount = calc.incentive;
         calc.total_amount = calc.final_amount;
         
         // Generate a calculation_name if it doesn't exist
         if (!calc.calculation_name) {
-          // Include PDF info in the name if available
-          if (calc.pdf_url) {
-            calc.calculation_name = `PDF Report ${formatDate(calc.created_at)}`;
-          } else {
             calc.calculation_name = `Calculation ${formatDate(calc.created_at)}`;
           }
         }
         
-        // Make sure null PDF URLs don't cause issues
-        if (!calc.pdf_url) {
-          calc.pdf_url = null;
-        } else {
+      // Now fetch PDF URLs from pdf_documents table for each calculation
+      try {
+        // Get all PDFs related to these calculations
+        const calculationIds = data.map(calc => calc.id);
+        const { data: pdfDocs, error: pdfError } = await supabase
+          .from('pdf_documents')
+          .select('id, calculation_id, pdf_url')
+          .in('calculation_id', calculationIds)
+          .eq('report_type', 'individual report');
+          
+        if (pdfError) {
+          console.warn('Error fetching PDF documents:', pdfError);
+        } else if (pdfDocs && pdfDocs.length > 0) {
+          console.log(`Found ${pdfDocs.length} related PDF documents`);
+          
+          // Create a map of calculation_id to pdf_url for faster lookup
+          const pdfMap = {};
+          pdfDocs.forEach(pdf => {
+            if (pdf.calculation_id) {
+              pdfMap[pdf.calculation_id] = pdf.pdf_url;
+            }
+          });
+          
+          // Add pdf_url to each calculation if available
+          data.forEach(calc => {
+            calc.pdf_url = pdfMap[calc.id] || null;
+            if (calc.pdf_url) {
           console.log(`Found PDF URL for calculation ${calc.id}: ${calc.pdf_url}`);
+              // Update calculation_name to indicate it has a PDF if not already set
+              if (!calc.calculation_name || calc.calculation_name.startsWith('Calculation ')) {
+                calc.calculation_name = `PDF Report ${formatDate(calc.created_at)}`;
+              }
+            }
+          });
+        } else {
+          console.log('No related PDF documents found');
+          // Set pdf_url to null for all calculations
+          data.forEach(calc => {
+            calc.pdf_url = null;
+          });
         }
-      });
+      } catch (pdfFetchError) {
+        console.error('Error fetching related PDFs:', pdfFetchError);
+        // Continue without PDF URLs
+        data.forEach(calc => {
+          calc.pdf_url = null;
+        });
+      }
     }
     
     return data || [];
@@ -784,6 +1070,10 @@ export const calculateSalaryWithEdgeFunction = async (calculationData) => {
       console.error('Found evaluation days without IDs:', invalidDays);
       throw new Error(`${invalidDays.length} evaluation days are missing evaluation_day_id`);
     }
+
+    // Check if we're updating an existing calculation
+    const isUpdate = !!calculationData.calculation_id;
+    console.log(`${isUpdate ? 'Updating existing' : 'Creating new'} calculation ${isUpdate ? calculationData.calculation_id : ''}`);
     
     // The payload is now already in the correct format, no need to transform it
     console.log('Edge function payload:', JSON.stringify(calculationData));
@@ -819,7 +1109,8 @@ export const calculateSalaryWithEdgeFunction = async (calculationData) => {
       total_papers: data.total_papers,
       total_staff: data.total_staff,
       id: data.id,
-      calculation_id: data.calculation_id
+      calculation_id: data.calculation_id,
+      pdf_id: data.pdf_id // New field returned from updated edge function
     });
     
     // Calculate total staff from evaluation days if not provided by edge function
@@ -830,9 +1121,12 @@ export const calculateSalaryWithEdgeFunction = async (calculationData) => {
     // IMPORTANT: The edge function already inserts into calculation_documents
     // DO NOT insert again to avoid duplicate entries
     
-    // Extract the calculation_id from the response
-    // Look in different possible locations since the edge function may return it in different formats
-    const calculationId = data.calculation_id || data.id || data.calculationId || null;
+    // Extract the calculation_id from the response - if we were updating, reuse the input ID
+    const calculationId = isUpdate ? calculationData.calculation_id : 
+                         (data.calculation_id || data.id || data.calculationId || null);
+    
+    // Extract the pdf_id from the response (NEW - from updated edge function)
+    const pdfId = data.pdf_id || null;
     
     // Format the response to match the expected structure in the frontend
     // Ensure we have valid numbers by using explicit conversion methods
@@ -844,10 +1138,11 @@ export const calculateSalaryWithEdgeFunction = async (calculationData) => {
       totalStaff: parseInt(data.total_staff) || parseInt(totalStaff) || 0,
       calculatedLocally: false,
       status: data.status || 'completed',
-      calculation_id: calculationId  // Include the calculation ID from the edge function
+      calculation_id: calculationId,  // Include the calculation ID from the edge function
+      pdf_id: pdfId  // NEW: Include the PDF ID from the edge function
     };
     
-    console.log('Formatted edge function result with calculation_id:', result);
+    console.log('Formatted edge function result with calculation_id and pdf_id:', result);
     return result;
   } catch (error) {
     console.error('Failed to calculate using edge function:', error);
@@ -1236,36 +1531,84 @@ export const renameDocument = async (documentId, newName) => {
 };
 
 /**
- * Download multiple documents as a ZIP file
- * @param {Array} documentPaths Array of document paths
- * @returns {Promise} Promise object with download result
+ * Download multiple PDFs as a ZIP file
+ * @param {Array} params Array of document IDs or URLs to download
+ * @param {boolean} useDirectUrls Whether to use direct URLs or file paths
+ * @returns {Promise} Promise with download result
  */
-export const downloadDocumentsAsZip = async (documentPaths) => {
+export const downloadDocumentsAsZip = async (params, useDirectUrls = false) => {
   try {
-    const timestamp = new Date().getTime();
-    const fileName = `documents_${timestamp}.zip`;
-    
-    // Call the server API to create a ZIP file
-    const response = await axios.post('/api/calculations/download-zip', {
-      documentPaths,
-      fileName
-    }, {
-      responseType: 'blob'
-    });
-    
-    // Create a download link and trigger download
-    const url = window.URL.createObjectURL(new Blob([response.data]));
+    // If we're using direct URLs (for pdf_documents)
+    if (useDirectUrls) {
+      const { documentIds, documentUrls } = params;
+      
+      // If document IDs are provided, fetch URLs from pdf_documents
+      let urlsToDownload = documentUrls || [];
+      
+      if (documentIds && documentIds.length > 0) {
+        console.log('Fetching PDF documents by IDs:', documentIds);
+        
+        const { data: pdfDocs, error } = await supabase
+          .from('pdf_documents')
+          .select('id, pdf_url, report_name')
+          .in('id', documentIds);
+          
+        if (error) {
+          console.error('Error fetching PDF documents:', error);
+          throw error;
+        }
+        
+        if (pdfDocs && pdfDocs.length > 0) {
+          // Use the PDF URLs from the database
+          urlsToDownload = pdfDocs.map(doc => ({
+            url: doc.pdf_url,
+            filename: doc.report_name || `report_${doc.id}.pdf`
+          }));
+        }
+      }
+      
+      if (urlsToDownload.length === 0) {
+        throw new Error('No URLs to download');
+      }
+      
+      // For now, just download each PDF individually
+      // In a real implementation, you would use JSZip to bundle them
+      console.log('Downloading PDFs:', urlsToDownload);
+      
+      for (const doc of urlsToDownload) {
     const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', fileName);
+        link.href = doc.url;
+        link.download = doc.filename || 'document.pdf';
     document.body.appendChild(link);
     link.click();
+        document.body.removeChild(link);
+        
+        // Small delay to prevent browser issues
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
+      return true;
+    }
     
-    // Clean up
-    window.URL.revokeObjectURL(url);
-    link.remove();
+    // Legacy method using document paths
+    const documentPaths = params;
     
-    return { success: true, fileName };
+    if (!documentPaths || documentPaths.length === 0) {
+      throw new Error('No document paths provided');
+    }
+    
+    // In a real app, this would use JSZip to create a ZIP file
+    // For now, just download each file separately
+    console.log('Downloading documents from paths:', documentPaths);
+    
+    for (const path of documentPaths) {
+      await downloadCalculationDocument(path);
+      
+      // Small delay to prevent browser issues
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
+    return true;
   } catch (error) {
     console.error('Error downloading documents as ZIP:', error);
     throw error;
@@ -1311,6 +1654,392 @@ export const exportCalculations = async (calculationIds, format = 'excel') => {
   }
 };
 
+/**
+ * Get all PDF documents from the pdf_documents table
+ * @param {Object} filters Optional filters like report_type, examiner_id, etc.
+ * @returns {Promise} Promise with array of PDF documents
+ */
+export const getAllPdfDocuments = async (filters = {}) => {
+  try {
+    console.log('Fetching PDF documents with filters:', filters);
+    
+    // Build the query
+    let query = supabase
+      .from('pdf_documents')
+      .select('*');
+    
+    // Apply filters if provided
+    if (filters.report_type) {
+      query = query.eq('report_type', filters.report_type);
+    }
+    
+    if (filters.examiner_id) {
+      query = query.eq('examiner_id', filters.examiner_id);
+    }
+    
+    if (filters.calculation_id) {
+      query = query.eq('calculation_id', filters.calculation_id);
+    }
+    
+    if (filters.is_favorite !== undefined) {
+      query = query.eq('is_favorite', filters.is_favorite);
+    }
+    
+    if (filters.start_date && filters.end_date) {
+      query = query
+        .gte('created_at', filters.start_date)
+        .lte('created_at', filters.end_date);
+    }
+    
+    // Execute the query
+    const { data, error } = await query.order('created_at', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching PDF documents:', error);
+      throw error;
+    }
+    
+    console.log(`Retrieved ${data?.length || 0} PDF documents`);
+    return data || [];
+  } catch (error) {
+    console.error('Error in getAllPdfDocuments:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get all PDF documents with examiner details
+ * @param {Object} filters Optional filters like report_type, examiner_id, etc.
+ * @returns {Promise} Promise with array of PDF documents including examiner details
+ */
+export const getAllPdfDocumentsWithExaminers = async (filters = {}) => {
+  try {
+    console.log('Fetching PDF documents with examiner info, filters:', filters);
+    
+    // Build the query with join to examiners table
+    let query = supabase
+      .from('pdf_documents')
+      .select(`
+        *,
+        examiners:examiner_id (
+          id,
+          examiner_id,
+          full_name,
+          department,
+          position
+        )
+      `);
+    
+    // Apply filters if provided
+    if (filters.report_type) {
+      query = query.eq('report_type', filters.report_type);
+    }
+    
+    if (filters.examiner_id) {
+      query = query.eq('examiner_id', filters.examiner_id);
+    }
+    
+    if (filters.calculation_id) {
+      query = query.eq('calculation_id', filters.calculation_id);
+    }
+    
+    if (filters.is_favorite !== undefined) {
+      query = query.eq('is_favorite', filters.is_favorite);
+    }
+    
+    if (filters.start_date && filters.end_date) {
+      query = query
+        .gte('created_at', filters.start_date)
+        .lte('created_at', filters.end_date);
+    }
+    
+    // Execute the query
+    const { data, error } = await query.order('created_at', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching PDF documents with examiners:', error);
+      throw error;
+    }
+    
+    console.log(`Retrieved ${data?.length || 0} PDF documents with examiner details`);
+    return data || [];
+  } catch (error) {
+    console.error('Error in getAllPdfDocumentsWithExaminers:', error);
+    throw error;
+  }
+};
+
+/**
+ * Toggle the favorite status of a PDF document
+ * @param {string} documentId The PDF document ID
+ * @param {boolean} isFavorite The new favorite status
+ * @returns {Promise} Promise with update confirmation
+ */
+export const togglePdfDocumentFavorite = async (documentId, isFavorite) => {
+  try {
+    const { data, error } = await supabase
+      .from('pdf_documents')
+      .update({ is_favorite: isFavorite })
+      .eq('id', documentId)
+      .select()
+      .single();
+      
+    if (error) {
+      console.error('Error toggling PDF document favorite status:', error);
+      throw error;
+    }
+    
+    console.log('Updated PDF document favorite status:', data);
+    return data;
+  } catch (error) {
+    console.error('Error in togglePdfDocumentFavorite:', error);
+    throw error;
+  }
+};
+
+/**
+ * Delete a PDF document
+ * @param {string} documentId The PDF document ID
+ * @returns {Promise} Promise with delete confirmation
+ */
+export const deletePdfDocument = async (documentId) => {
+  try {
+    const { error } = await supabase
+      .from('pdf_documents')
+      .delete()
+      .eq('id', documentId);
+      
+    if (error) {
+      console.error('Error deleting PDF document:', error);
+      throw error;
+    }
+    
+    console.log('PDF document deleted successfully');
+    return true;
+  } catch (error) {
+    console.error('Error in deletePdfDocument:', error);
+    throw error;
+  }
+};
+
+/**
+ * Save individual PDF report metadata to pdf_documents table
+ * @param {Object} params Parameters for saving the individual PDF report
+ * @param {string} params.examinerId The examiner ID
+ * @param {string} params.pdfUrl The URL to the generated PDF file
+ * @param {string} params.reportName Optional custom report name
+ * @param {string} params.calculationId Optional calculation ID to link this PDF to
+ * @returns {Promise} Promise with the saved PDF document data
+ */
+export const saveIndividualPDFMetadata = async (params) => {
+  try {
+    const { examinerId, pdfUrl, reportName } = params;
+    
+    if (!examinerId || !pdfUrl) {
+      throw new Error('Missing required parameters: examinerId and pdfUrl are required');
+    }
+    
+    // Get examiner information for better report name
+    const { data: examiner } = await supabase
+      .from('examiners')
+      .select('full_name')
+      .eq('id', examinerId)
+      .single();
+    
+    const examinerName = examiner?.full_name || 'Unknown';
+    const timestamp = new Date().toISOString().slice(0, 10);
+    
+    // Create the PDF document entry
+    const pdfDocumentData = {
+      examiner_id: examinerId,
+      report_type: 'individual report', // Must be one of the 4 types from the schema
+      calculation_id: params.calculationId || null, // UUID of calculation if available
+      pdf_url: pdfUrl, // The URL to the PDF file
+      filters: null, // No filters needed for individual report
+      report_name: reportName || `${examinerName} - Individual Report (${timestamp})`,
+      is_favorite: false // Default false
+    };
+    
+    console.log('Saving individual PDF metadata to pdf_documents table:', pdfDocumentData);
+    
+    const { data: savedPdfDoc, error } = await supabase
+      .from('pdf_documents')
+      .insert(pdfDocumentData)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error saving individual PDF metadata:', error);
+      throw error;
+    }
+    
+    console.log('Successfully saved individual PDF metadata:', savedPdfDoc);
+    return savedPdfDoc;
+  } catch (error) {
+    console.error('Error in saveIndividualPDFMetadata:', error);
+    throw error;
+  }
+};
+
+/**
+ * Save examiner history PDF report metadata to pdf_documents table
+ * @param {Object} params Parameters for saving the examiner history PDF report
+ * @param {string} params.examinerId The examiner ID
+ * @param {string} params.pdfUrl The URL to the generated PDF file
+ * @param {string} params.reportName Optional custom report name
+ * @param {Object} params.filters Optional filters used to generate the report
+ * @returns {Promise} Promise with the saved PDF document data
+ */
+export const saveExaminerHistoryPDFMetadata = async (params) => {
+  try {
+    const { examinerId, pdfUrl, reportName, filters } = params;
+    
+    if (!examinerId || !pdfUrl) {
+      throw new Error('Missing required parameters: examinerId and pdfUrl are required');
+    }
+    
+    // Get examiner information for better report name
+    const { data: examiner } = await supabase
+      .from('examiners')
+      .select('full_name')
+      .eq('id', examinerId)
+      .single();
+    
+    const examinerName = examiner?.full_name || 'Unknown';
+    const timestamp = new Date().toISOString().slice(0, 10);
+    
+    // Create the PDF document entry
+    const pdfDocumentData = {
+      examiner_id: examinerId,
+      report_type: 'examiner report', // Must be one of the 4 types from the schema
+      calculation_id: null, // Not linked to a specific calculation
+      pdf_url: pdfUrl, // The URL to the PDF file
+      filters: filters ? JSON.stringify(filters) : null,
+      report_name: reportName || `${examinerName} - Full History Report (${timestamp})`,
+      is_favorite: false // Default false
+    };
+    
+    console.log('Saving examiner history PDF metadata to pdf_documents table:', pdfDocumentData);
+    
+    const { data: savedPdfDoc, error } = await supabase
+      .from('pdf_documents')
+      .insert(pdfDocumentData)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error saving examiner history PDF metadata:', error);
+      throw error;
+    }
+    
+    console.log('Successfully saved examiner history PDF metadata:', savedPdfDoc);
+    return savedPdfDoc;
+  } catch (error) {
+    console.error('Error in saveExaminerHistoryPDFMetadata:', error);
+    throw error;
+  }
+};
+
+/**
+ * Save merged PDF report metadata to pdf_documents table
+ * @param {Object} params Parameters for saving the merged PDF report
+ * @param {string} params.pdfUrl The URL to the generated PDF file
+ * @param {string} params.reportName Optional custom report name
+ * @param {Object} params.filters Optional filters used to generate the report
+ * @returns {Promise} Promise with the saved PDF document data
+ */
+export const saveMergedPDFMetadata = async (params) => {
+  try {
+    const { pdfUrl, reportName, filters } = params;
+    
+    if (!pdfUrl) {
+      throw new Error('Missing required parameter: pdfUrl is required');
+    }
+    
+    const timestamp = new Date().toISOString().slice(0, 10);
+    
+    // Create the PDF document entry
+    const pdfDocumentData = {
+      examiner_id: params.primaryExaminerId || null, // Optional: primary examiner if applicable
+      report_type: 'merged report', // Must be one of the 4 types from the schema
+      calculation_id: null, // Not linked to a specific calculation
+      pdf_url: pdfUrl, // The URL to the PDF file
+      filters: filters ? JSON.stringify(filters) : null,
+      report_name: reportName || `Merged Examiners Report (${timestamp})`,
+      is_favorite: false // Default false
+    };
+    
+    console.log('Saving merged PDF metadata to pdf_documents table:', pdfDocumentData);
+    
+    const { data: savedPdfDoc, error } = await supabase
+      .from('pdf_documents')
+      .insert(pdfDocumentData)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error saving merged PDF metadata:', error);
+      throw error;
+    }
+    
+    console.log('Successfully saved merged PDF metadata:', savedPdfDoc);
+    return savedPdfDoc;
+  } catch (error) {
+    console.error('Error in saveMergedPDFMetadata:', error);
+    throw error;
+  }
+};
+
+/**
+ * Save custom PDF report metadata to pdf_documents table
+ * @param {Object} params Parameters for saving the custom PDF report
+ * @param {string} params.pdfUrl The URL to the generated PDF file
+ * @param {string} params.reportName Optional custom report name
+ * @param {Object} params.filters Optional filters used to generate the report
+ * @returns {Promise} Promise with the saved PDF document data
+ */
+export const saveCustomPDFMetadata = async (params) => {
+  try {
+    const { pdfUrl, reportName, filters } = params;
+    
+    if (!pdfUrl) {
+      throw new Error('Missing required parameter: pdfUrl is required');
+    }
+    
+    const timestamp = new Date().toISOString().slice(0, 10);
+    
+    // Create the PDF document entry
+    const pdfDocumentData = {
+      examiner_id: params.examinerId || null, // Optional: examiner ID if relevant to the custom report
+      report_type: 'custom report', // Must be one of the 4 types from the schema
+      calculation_id: null, // Not linked to a specific calculation
+      pdf_url: pdfUrl, // The URL to the PDF file
+      filters: filters ? JSON.stringify(filters) : null,
+      report_name: reportName || `Custom Report (${timestamp})`,
+      is_favorite: false // Default false
+    };
+    
+    console.log('Saving custom PDF metadata to pdf_documents table:', pdfDocumentData);
+    
+    const { data: savedPdfDoc, error } = await supabase
+      .from('pdf_documents')
+      .insert(pdfDocumentData)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error saving custom PDF metadata:', error);
+      throw error;
+    }
+    
+    console.log('Successfully saved custom PDF metadata:', savedPdfDoc);
+    return savedPdfDoc;
+  } catch (error) {
+    console.error('Error in saveCustomPDFMetadata:', error);
+    throw error;
+  }
+};
+
 // Export as default
 const calculationService = {
   getExaminerDetails,
@@ -1331,7 +2060,15 @@ const calculationService = {
   deleteDocument,
   renameDocument,
   downloadDocumentsAsZip,
-  exportCalculations
+  exportCalculations,
+  getAllPdfDocuments,
+  getAllPdfDocumentsWithExaminers,
+  togglePdfDocumentFavorite,
+  deletePdfDocument,
+  saveIndividualPDFMetadata,
+  saveExaminerHistoryPDFMetadata,
+  saveMergedPDFMetadata,
+  saveCustomPDFMetadata
 };
 
 export default calculationService; 

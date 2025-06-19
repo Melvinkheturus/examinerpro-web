@@ -23,9 +23,11 @@ export const supabase = (() => {
       redirectTo
     },
     global: {
-      // Skip tolerance checks for clock skew
+      // Add Accept header to fix 406 errors
       fetchOptions: {
-        headers: {}
+        headers: {
+          'Accept': 'application/json'
+        }
       }
     }
   });

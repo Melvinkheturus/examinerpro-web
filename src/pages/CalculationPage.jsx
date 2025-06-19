@@ -65,6 +65,24 @@ const CalculationPage = () => {
     calculationId: null
   });
   
+  // Custom styles for input fields
+  const inputStyles = {
+    border: '2px solid #e2e8f0',
+    borderRadius: '0.375rem',  
+    padding: '0.5rem 0.75rem',
+    fontSize: '0.875rem',
+    lineHeight: '1.25rem',
+    width: '100%',
+    height: '38px',
+    boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+    outline: 'none'
+  };
+  
+  const inputFocusStyles = {
+    borderColor: '#3b82f6',
+    boxShadow: '0 0 0 2px rgba(59, 130, 246, 0.25)'
+  };
+  
   // Initialize loading to false if we have examiner data in location state
   const [loading, setLoading] = useState(!location.state?.examinerData);
   const [downloading, setDownloading] = useState(false);
@@ -80,6 +98,11 @@ const CalculationPage = () => {
   useEffect(() => {
     if (!id) return;
     
+    // Skip draft check if we're returning from staff details page with data
+    if (location.state?.evaluationDayId || location.state?._ts) {
+      return;
+    }
+    
     const draftKey = `examinerPro_draft_${id}`;
     const savedDraft = localStorage.getItem(draftKey);
     
@@ -87,8 +110,8 @@ const CalculationPage = () => {
       try {
         const parsedDraft = JSON.parse(savedDraft);
         
-        // Only show prompt if the draft wasn't marked as calculated
-        if (!parsedDraft.isCalculated) {
+        // Only show prompt if the draft wasn't marked as calculated and has at least one day
+        if (!parsedDraft.isCalculated && parsedDraft.evaluationDays && parsedDraft.evaluationDays.length > 0) {
           // Convert plain objects back to EvaluationDay instances
           const restoredDays = parsedDraft.evaluationDays.map(day => 
             new EvaluationDay(day.date, day.staffCount, day.totalPapers, day.id)
@@ -108,6 +131,7 @@ const CalculationPage = () => {
         localStorage.removeItem(draftKey);
       }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
   
   // Auto-save draft whenever evaluation days change
@@ -156,6 +180,20 @@ const CalculationPage = () => {
     if (location.state?.examinerData) {
       console.log("Using examiner data from location state:", location.state.examinerData);
       setExaminer(location.state.examinerData);
+      
+      // Skip unnecessary navigation when examiner name is already in state
+      if (!location.state.examinerName) {
+        // Pass examiner name to location state for breadcrumbs, but only if not already there
+        const currentPath = window.location.pathname;
+        navigate(currentPath, { 
+          replace: true, 
+          state: {
+            ...location.state,
+            examinerName: location.state.examinerData.full_name
+          }
+        });
+      }
+      
       return;
     }
     
@@ -172,6 +210,19 @@ const CalculationPage = () => {
         
         console.log("Fetched examiner data:", data);
         setExaminer(data);
+        
+        // Skip unnecessary navigation when examiner name is already in state
+        if (!location.state?.examinerName) {
+          // Pass examiner name to location state for breadcrumbs
+          const currentPath = window.location.pathname;
+          navigate(currentPath, { 
+            replace: true, 
+            state: {
+              ...location.state,
+              examinerName: data.full_name
+            }
+          });
+        }
       } catch (err) {
         setError(err.message || 'Failed to load examiner details');
         console.error('Error fetching examiner:', err);
@@ -181,7 +232,8 @@ const CalculationPage = () => {
     };
     
     fetchExaminerDetails();
-  }, [id, location.state]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, navigate]); // Intentionally omitting location.state to prevent loops, using eslint-disable-next-line instead
   
   // Check for staff details in location state
   useEffect(() => {
@@ -190,13 +242,20 @@ const CalculationPage = () => {
       return;
     }
     
+    // Immediately hide draft prompt when returning from staff details
+    setShowDraftPrompt(false);
+    
     // Skip processing if we've already handled this navigation state
-    if (processedLocationState.current) {
+    // Use timestamp to determine if this is a new state update
+    const stateTimestamp = location?.state?._ts;
+    const lastProcessedTimestamp = processedLocationState.current;
+    
+    if (typeof stateTimestamp === 'number' && stateTimestamp === lastProcessedTimestamp) {
       return;
     }
     
-    // Mark that we've processed this state
-    processedLocationState.current = true;
+    // Mark that we've processed this state with timestamp
+    processedLocationState.current = stateTimestamp || true;
     
     const evaluationDayId = location?.state?.evaluationDayId;
     const evaluationDate = location?.state?.evaluationDate;
@@ -211,6 +270,29 @@ const CalculationPage = () => {
     // Fetch evaluation day with staff details if needed
     const fetchEvaluationDay = async () => {
       try {
+        // IMPORTANT: Get a fresh copy of the current evaluation days from localStorage or state
+        // to ensure we have the latest data
+        const draftKey = `examinerPro_draft_${id}`;
+        let currentDays = [...evaluationDays]; // Start with current state
+        
+        // Try to get the latest data from localStorage if available
+        const savedDraft = localStorage.getItem(draftKey);
+        if (savedDraft) {
+          try {
+            const parsedDraft = JSON.parse(savedDraft);
+            if (parsedDraft.evaluationDays && parsedDraft.evaluationDays.length > 0) {
+              // Use the draft data days if available, as they might be more up-to-date
+              currentDays = parsedDraft.evaluationDays.map(day => 
+                new EvaluationDay(day.date, day.staffCount, day.totalPapers, day.id)
+              );
+              console.log("Retrieved current days from localStorage:", currentDays);
+            }
+          } catch (error) {
+            console.error('Error parsing draft data for day update:', error);
+            // Continue with current state if there's an error
+          }
+        }
+        
         // If we have an ID, fetch the data from the server
         if (evaluationDayId) {
           const evaluationDay = await staffService.getEvaluationDayWithStaff(evaluationDayId);
@@ -227,8 +309,6 @@ const CalculationPage = () => {
             // Format date for comparison
             const formattedDate = new Date(evaluationDate).toISOString().split('T')[0];
             
-            // Get current days into a local variable to ensure we're working with the latest state
-            const currentDays = [...evaluationDays];
             console.log("Current evaluation days before update:", currentDays);
             
             // Find any days with the same date or ID
@@ -251,130 +331,142 @@ const CalculationPage = () => {
             
             // Update state with deduplicated days
             console.log("Final evaluation days after update:", updatedDays);
-            setEvaluationDays(updatedDays);
+            // Only update state if days have actually changed
+            if (JSON.stringify(updatedDays) !== JSON.stringify(currentDays)) {
+              setEvaluationDays(updatedDays);
             
-            // Show success message only once
-            toast.success('Evaluation data updated successfully');
+              // After updating days, we need to clear any draft data popup if it's being shown
+              setShowDraftPrompt(false);
+
+              // Update the draft in localStorage with the combined days
+              const updatedDraftData = {
+                evaluationDays: updatedDays,
+                selectedDate: '',
+                staffCount: 1,
+                lastSavedAt: Date.now(),
+                isCalculated: false
+              };
+              localStorage.setItem(`examinerPro_draft_${id}`, JSON.stringify(updatedDraftData));
+              
+              // Show success message only once
+              toast.success('Evaluation data updated successfully');
+            }
           }
-        } else {
+        } else if (evaluationDate && totalPapers) {
           // Handle case where we have date and staff count but no ID yet
           const formattedDate = new Date(evaluationDate).toISOString().split('T')[0];
-          
-          // Make a local copy of current days
-          const currentDays = [...evaluationDays];
           
           // Check if day with this date already exists
           const existingDayIndex = currentDays.findIndex(day => 
             new Date(day.date).toISOString().split('T')[0] === formattedDate
           );
           
+          let updatedDays;
           if (existingDayIndex >= 0) {
             // Update the existing day
-            const updatedDays = [...currentDays];
+            updatedDays = [...currentDays];
             updatedDays[existingDayIndex] = new EvaluationDay(
               evaluationDate,
               returnedStaffCount,
               totalPapers,
               currentDays[existingDayIndex].id
             );
-            setEvaluationDays(updatedDays);
           } else {
             // Add a new day
-            setEvaluationDays([
+            updatedDays = [
               ...currentDays,
               new EvaluationDay(evaluationDate, returnedStaffCount, totalPapers)
-            ]);
+            ];
           }
           
-          // Show success message only once
-          toast.success('Evaluation day added to calculation');
+          // Only update state if days have actually changed
+          if (JSON.stringify(updatedDays) !== JSON.stringify(currentDays)) {
+            setEvaluationDays(updatedDays);
+            
+            // After updating days, we need to clear any draft data popup if it's being shown
+            setShowDraftPrompt(false);
+
+            // Update the draft in localStorage with the combined days
+            const updatedDraftData = {
+              evaluationDays: updatedDays,
+              selectedDate: '',
+              staffCount: 1,
+              lastSavedAt: Date.now(),
+              isCalculated: false
+            };
+            localStorage.setItem(`examinerPro_draft_${id}`, JSON.stringify(updatedDraftData));
+          }
         }
-        
-        // Clean up location state to prevent reprocessing
-        navigate(location.pathname, { replace: true });
       } catch (error) {
-        console.error("Error updating evaluation day:", error);
-        toast.error("Error updating evaluation day: " + (error.message || "Unknown error"));
+        console.error('Error processing evaluation days:', error);
       }
     };
     
     fetchEvaluationDay();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.state, evaluationDays, navigate]);
+  }, [id, location?.state?.evaluationDayId, location?.state?.evaluationDate, location?.state?._ts]);
   
-  // Add a new evaluation day
-  const handleAddDay = async () => {
+  // Handle entering evaluation data (staff details) for a day
+  const handleEnterEvaluationData = async (index) => {
     try {
-      console.log("handleAddDay called with:", { selectedDate, staffCount });
-      
+      // If index is -1, we're adding a new day
+      if (index === -1) {
       if (!selectedDate) {
-        toast.error('Please select a date');
+          toast.error("Please select a date first");
         return;
       }
       
-      if (staffCount < 1) {
-        toast.error('Staff count must be at least 1');
-        return;
-      }
-      
-      // Check if a day with the same date already exists
+        // Format date for comparison
       const formattedSelectedDate = new Date(selectedDate).toISOString().split('T')[0];
+        
+        // Check if this day already exists
       const existingDayIndex = evaluationDays.findIndex(day => 
         new Date(day.date).toISOString().split('T')[0] === formattedSelectedDate
       );
       
       if (existingDayIndex >= 0) {
-        toast.error('An evaluation day with this date already exists');
+          // If the day exists, update the index to use the existing day
+          index = existingDayIndex;
+          toast.success(`Using existing evaluation day for ${formatDate(selectedDate)}`);
+        } else {
+          // For a new day, don't create it now - just navigate to staff details page
+          // and let that page handle creation after user enters staff details
+          
+          // Navigate to the staff details page with just the date and staff count
+          navigate(`/staff-details/${id}`, {
+            state: {
+              evaluationDate: selectedDate,
+              staffCount: staffCount,
+              examinerData: examiner,
+              examinerName: examiner?.name || '',
+              _ts: Date.now() // Add timestamp to ensure useEffect triggers
+            }
+          });
+          return;
+          }
+        }
+      
+      if (index < 0 || index >= evaluationDays.length) {
+        toast.error("Invalid evaluation day selected");
         return;
       }
-
-      // Create the evaluation day in the database first to get an ID
-      let newDayData;
-      try {
-        newDayData = await staffService.createEvaluationDay(examiner.id, selectedDate);
-        console.log("Created evaluation day in database:", newDayData);
-      } catch (error) {
-        console.error("Error creating evaluation day in database:", error);
-        toast.error("Failed to create evaluation day in database");
-        return;
-      }
       
-      // Create a new day with the ID from the database
-      const newDay = new EvaluationDay(
-        selectedDate, 
-        staffCount, 
-        0, // No papers yet
-        newDayData?.id // Use the ID from the database
-      );
+      const day = evaluationDays[index];
       
-      console.log("Created new evaluation day:", newDay);
-      console.log("Current evaluation days before adding:", evaluationDays);
-      
-      // Create a new array with all existing days plus the new one
-      const updatedDays = [...evaluationDays, newDay];
-      console.log("Updated evaluation days after adding:", updatedDays);
-      
-      // Update state
-      setEvaluationDays(updatedDays);
-      
-      // Reset form fields
-      setSelectedDate('');
-      setStaffCount(1);
-      
-      // Reset calculation when days change
-      setCalculationResults({
-        totalPapers: 0,
-        baseSalary: 0,
-        incentiveAmount: 0,
-        totalSalary: 0,
-        calculated: false,
-        calculationId: null
+      // Navigate to the staff details page with the day data
+      navigate(`/staff-details/${id}`, {
+        state: {
+          evaluationDayId: day.id,
+          evaluationDate: day.date,
+          staffCount: day.staffCount,
+          examinerData: examiner,
+          examinerName: examiner?.name || '',
+          _ts: Date.now() // Add timestamp to ensure useEffect triggers
+        }
       });
-      
-      toast.success('Evaluation day added successfully');
     } catch (error) {
-      console.error("Error in handleAddDay:", error);
-      toast.error("Error adding evaluation day: " + (error.message || "Unknown error"));
+      console.error("Error in handleEnterEvaluationData:", error);
+      toast.error("Error entering evaluation data: " + (error.message || "Unknown error"));
     }
   };
   
@@ -406,50 +498,6 @@ const CalculationPage = () => {
     } catch (error) {
       console.error("Error in handleRemoveDay:", error);
       toast.error("Error removing evaluation day: " + (error.message || "Unknown error"));
-    }
-  };
-  
-  // Navigate to Staff Details page
-  const handleEnterEvaluationData = (index) => {
-    try {
-      const day = index >= 0 ? evaluationDays[index] : null;
-      
-      if (day) {
-        // If day already has an ID, we can directly navigate to edit existing data
-        if (day.id) {
-          navigate(`/staff-details/${id}`, {
-            state: {
-              evaluationDayId: day.id,
-              evaluationDate: day.date,
-              staffCount: day.staffCount
-            }
-          });
-        } else {
-          // If it's a new day with no ID yet, we need to create the evaluation day first
-          navigate(`/staff-details/${id}`, {
-            state: {
-              evaluationDate: day.date,
-              staffCount: day.staffCount
-            }
-          });
-        }
-      } else {
-        // For new entries
-        if (!selectedDate) {
-          toast.error('Please select a date first');
-          return;
-        }
-        
-        navigate(`/staff-details/${id}`, {
-          state: {
-            evaluationDate: selectedDate,
-            staffCount: staffCount
-          }
-        });
-      }
-    } catch (error) {
-      console.error("Error navigating to staff details:", error);
-      toast.error("Error opening staff details: " + (error.message || "Unknown error"));
     }
   };
   
@@ -542,7 +590,9 @@ const CalculationPage = () => {
       // Prepare data for the edge function calculation with the correct format
       const calculationData = {
         examiner_id: examiner.id,
-        evaluation_days: daysWithValidIds
+        evaluation_days: daysWithValidIds,
+        // If we have an existing calculation ID, include it to update rather than create new
+        ...(calculationResults.calculationId ? { calculation_id: calculationResults.calculationId } : {})
       };
       
       console.log('Sending calculation data to edge function:', calculationData);
@@ -558,12 +608,12 @@ const CalculationPage = () => {
         return;
       }
       
-      // Extract the calculation_id from the edge function response - don't insert again
-      let calculationId = calculationResult.calculation_id;
+      // If we had an existing calculation ID, prefer that, otherwise use the one from the edge function
+      let calculationId = calculationResults.calculationId || calculationResult.calculation_id;
       if (!calculationId) {
         console.warn('No calculation_id returned from edge function. PDF functionality may not work properly.');
       } else {
-        console.log('Retrieved calculation ID from edge function:', calculationId);
+        console.log('Using calculation ID:', calculationId);
       }
       
       // Update state with calculated values for display, including the calculation ID from edge function
@@ -617,24 +667,51 @@ const CalculationPage = () => {
       toast.loading('Generating PDF report...');
       
       // Generate a unique PDF filename
-      const timestamp = new Date().getTime();
-      const pdfFileName = `calculation_${examiner.id}_${timestamp}.pdf`;
+      const pdfFileName = `${examiner?.full_name || 'Examiner'}_Calculation_${new Date().toISOString().slice(0, 10)}.pdf`;
       
       try {
         // Call the service to generate PDF using react-pdf/renderer
-        const document = await calculationService.generateCalculationPDF(
+        const pdfDocument = await calculationService.generateCalculationPDF(
           calculationResults.calculationId,
           pdfFileName
         );
         
-        if (!document || !document.blob_url) {
-          throw new Error('Failed to generate PDF document: No blob URL returned');
+        if (!pdfDocument) {
+          throw new Error('PDF generation failed: No document returned');
         }
         
-        // Open the PDF in a new tab
-        window.open(document.blob_url, '_blank');
-          
-          toast.dismiss();
+        if (!pdfDocument.blob) {
+          console.error('PDF document missing blob:', pdfDocument);
+          throw new Error('Failed to generate PDF document: No blob returned');
+        }
+        
+        // Create a Blob URL for preview and download - no need to rewrap the blob
+        const blobUrl = URL.createObjectURL(pdfDocument.blob);
+        
+        // Open the PDF preview
+        window.open(blobUrl, '_blank');
+        
+        // Trigger direct download
+        const downloadLink = document.createElement('a');
+        downloadLink.href = blobUrl;
+        downloadLink.download = pdfDocument.download_filename || pdfFileName;
+        downloadLink.type = 'application/pdf';
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        
+        // Safely remove the download link
+        setTimeout(() => {
+          if (document.body.contains(downloadLink)) {
+            document.body.removeChild(downloadLink);
+          }
+        }, 100);
+        
+        // Clean up the Blob URL after some time
+        setTimeout(() => {
+          URL.revokeObjectURL(blobUrl);
+        }, 5000);
+        
+        toast.dismiss();
         toast.success('PDF generated successfully');
       } catch (error) {
         console.error('Error generating PDF:', error);
@@ -721,7 +798,7 @@ const CalculationPage = () => {
   
   // Draft restore modal component
   const DraftPromptModal = () => {
-    if (!showDraftPrompt) return null;
+    if (!showDraftPrompt || !draftData || location.state?.evaluationDayId || location.state?._ts) return null;
     
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 animate-fadeIn">
@@ -771,41 +848,8 @@ const CalculationPage = () => {
               <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
               </svg>
-              Calculation
+              Examiner Calculator
             </h1>
-            <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-              Manage evaluation data and calculate payment for {examiner?.full_name || 'the examiner'}
-            </p>
-          </div>
-          
-          <div className="flex mt-4 md:mt-0 space-x-2">
-            <button
-              onClick={() => navigate(-1)}
-              className={`px-4 py-2 border rounded-md flex items-center ${
-                isDarkMode 
-                  ? 'border-gray-700 text-gray-300 hover:bg-gray-700' 
-                  : 'border-gray-300 text-gray-700 hover:bg-gray-100'
-              }`}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-              Back
-            </button>
-            
-            <button
-              onClick={handleRefresh}
-              className={`px-4 py-2 border rounded-md flex items-center ${
-                isDarkMode 
-                  ? 'border-gray-700 text-gray-300 hover:bg-gray-700' 
-                  : 'border-gray-300 text-gray-700 hover:bg-gray-100'
-              }`}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Reset
-            </button>
           </div>
         </div>
         
@@ -820,14 +864,14 @@ const CalculationPage = () => {
           <>
             <div className="mt-4">
               {/* 2. Evaluation Schedule Section */}
-              <div className="mb-8 bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+              <div id="evaluation-schedule-section" className="mb-8 bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
                 <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white text-center">
                   <span className="border-b-2 border-blue-500 pb-1">EVALUATION SCHEDULE</span>
                 </h2>
                 
                 <div className="flex flex-row gap-4 mb-4">
                   <div className="w-1/2">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 pl-1">
                       Evaluation Date
                     </label>
                     <div className="h-[38px]">
@@ -835,18 +879,27 @@ const CalculationPage = () => {
                         selectedDate={selectedDate ? new Date(selectedDate) : null}
                         onChange={handleDateChange}
                         placeholder="dd-mm-yyyy"
+                        className="block w-full h-full rounded-md border-gray-300 border-2 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        style={{
+                          ...inputStyles,
+                          '&:focus': inputFocusStyles
+                        }}
                       />
                     </div>
                   </div>
                   
                   <div className="w-1/2">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 pl-1">
                       No. of Examiners
                     </label>
                     <div className="h-[38px]">
                       <input
                         type="number"
-                        className="block w-full h-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        className="block w-full h-full rounded-md border-gray-300 border-2 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        style={{
+                          ...inputStyles,
+                          '&:focus': inputFocusStyles
+                        }}
                         value={staffCount}
                         onChange={(e) => {
                           const value = e.target.value;
@@ -868,38 +921,77 @@ const CalculationPage = () => {
                 </div>
                 
                 <div className="flex flex-row gap-3 mt-4">
+                  {selectedDate && evaluationDays.some(day => 
+                    new Date(day.date).toISOString().split('T')[0] === new Date(selectedDate).toISOString().split('T')[0]
+                  ) ? (
+                    // Show Update button when selected date already exists
                   <button
-                    className="inline-flex items-center justify-center w-full px-4 py-2 text-white text-sm font-medium bg-indigo-500 rounded-md hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                    onClick={() => handleEnterEvaluationData(-1)}
+                      className="inline-flex items-center justify-center w-full px-4 py-2 text-white text-sm font-medium bg-green-500 rounded-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                      onClick={() => {
+                        // Find the day index with matching date
+                        const formattedSelectedDate = new Date(selectedDate).toISOString().split('T')[0];
+                        const existingDayIndex = evaluationDays.findIndex(day => 
+                          new Date(day.date).toISOString().split('T')[0] === formattedSelectedDate
+                        );
+                        
+                        if (existingDayIndex >= 0) {
+                          // Navigate to staff details page with existing data
+                          handleEnterEvaluationData(existingDayIndex);
+                        } else {
+                          toast.error("Could not find the evaluation day to edit");
+                        }
+                      }}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                      <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                     </svg>
-                    Enter Evaluation Data
+                      Update Evaluation Data
                   </button>
-                  
+                  ) : (
+                    // Show Enter button when it's a new date
                   <button
-                    className="inline-flex items-center justify-center w-full px-4 py-2 text-white text-sm font-medium bg-blue-500 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                    onClick={() => handleAddDay()}
+                      className="inline-flex items-center justify-center w-full px-4 py-2 text-white text-sm font-medium bg-indigo-500 rounded-md hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                      onClick={() => handleEnterEvaluationData(-1)}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
+                        <path d="M13.586 3.586a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                     </svg>
-                    Add Another Day
+                      Enter Evaluation Data
                   </button>
+                  )}
                 </div>
               </div>
               
               {/* 3. Evaluation Summary Section */}
               <div className="mb-8 bg-white dark:bg-gray-800 rounded-md shadow-sm p-6">
-                <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white text-center">
-                  <span className="border-b-2 border-blue-500 pb-1">EVALUATION SUMMARY</span>
+                <h2 className="text-xl font-semibold mb-6 text-gray-900 dark:text-white text-center">
+                  <span className="border-b-2 border-blue-500 pb-1 uppercase">Evaluation Summary</span>
                 </h2>
                 
                 <div className="overflow-x-auto">
                   {evaluationDays.length === 0 ? (
-                    <div className="text-center py-4 text-gray-500 dark:text-gray-400">
-                      No evaluation days added yet. Add a day to begin.
+                    <div className="py-8 text-center">
+                      <div className="flex justify-center items-center space-x-6 mb-6">
+                        <div className="text-blue-500 text-4xl">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                          </svg>
+                        </div>
+                        <div className="text-blue-400 text-4xl">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                          </svg>
+                        </div>
+                        <div className="text-blue-500 text-4xl">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </div>
+                      </div>
+                      <p className="text-gray-600 dark:text-gray-400 text-lg mb-6">
+                        No evaluation days added yet.<br />
+                        <span className="font-medium">Add a day to begin.</span>
+                      </p>
                     </div>
                   ) : (
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
@@ -924,18 +1016,22 @@ const CalculationPage = () => {
                         {evaluationDays.map((day, index) => {
                           console.log(`Rendering day ${index}:`, day);
                           return (
-                            <tr key={`day-${index}-${day.date}`} className={index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700'}>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                            <tr 
+                              key={`day-${index}`}
+                              id={`evaluation-day-${index}`}
+                              className="transition-colors duration-200"
+                            >
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                                 {formatDate(day.date)}
                               </td>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                                 {day.staffCount}
                               </td>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                                 {day.totalPapers || 'Enter Details →'}
                               </td>
-                              <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
-                                <div className="flex items-center justify-end space-x-2">
+                              <td className="px-4 py-3 whitespace-nowrap text-right text-sm text-right">
+                                <div className="flex justify-end space-x-2">
                                   <button
                                     onClick={() => handleEnterEvaluationData(index)}
                                     className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
@@ -982,9 +1078,9 @@ const CalculationPage = () => {
                 <div className="flex justify-between mt-6">
                   <button
                     onClick={handleRefresh}
-                    className="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                    className="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 gap-2"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
                     Refresh Table
@@ -993,7 +1089,7 @@ const CalculationPage = () => {
                   <button
                     onClick={handleCalculateSalary}
                     disabled={evaluationDays.length === 0 || calculating}
-                    className="inline-flex items-center px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                    className="inline-flex items-center px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 gap-2"
                   >
                     {calculating ? (
                       <>
@@ -1005,7 +1101,7 @@ const CalculationPage = () => {
                       </>
                     ) : (
                       <>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                         </svg>
                         Calculate Salary

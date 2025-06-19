@@ -82,7 +82,7 @@ export const generateIndividualReport = async (calculationId, options = {}) => {
  */
 export const generateHistoryReport = async (examinerId, options = {}) => {
   try {
-    // Get examiner information
+    // Get the examiner data
     const { data: examiner, error: examinerError } = await supabase
       .from('examiners')
       .select('*')
@@ -92,23 +92,50 @@ export const generateHistoryReport = async (examinerId, options = {}) => {
     if (examinerError) throw examinerError;
     
     // Get all calculations for this examiner
-    const { data: calculations, error: calcsError } = await supabase
+    const { data: calculations, error: calcError } = await supabase
       .from('calculation_documents')
       .select('*')
       .eq('examiner_id', examinerId)
       .order('created_at', { ascending: false });
       
-    if (calcsError) throw calcsError;
+    if (calcError) throw calcError;
     
     // Generate the PDF
     if (options.download) {
       // Download the PDF
-      const fileName = options.fileName || `Examiner_History_${examiner.id}_${new Date().getTime()}.pdf`;
+      const fileName = options.fileName || `Examiner_History_${examiner.full_name.replace(/\s+/g, '_')}.pdf`;
       await downloadPDF(examiner, calculations, fileName, ReportTypes.HISTORY);
+      
+      // Save metadata to pdf_documents table
+      const timestamp = new Date().toISOString().slice(0, 10);
+      await supabase.from('pdf_documents').insert({
+        examiner_id: examinerId,
+        report_type: 'examiner report',
+        calculation_id: null,
+        filters: options.filters ? JSON.stringify(options.filters) : null,
+        report_name: `${examiner.full_name} - Full History Report (${timestamp})`,
+        pdf_url: null, // We don't store the actual PDF URL since it's generated on-demand
+        is_favorite: false
+      });
+      
       return true;
     } else {
       // Open in new tab
-      return await openPDFInNewTab(examiner, calculations, ReportTypes.HISTORY);
+      const url = await openPDFInNewTab(examiner, calculations, ReportTypes.HISTORY);
+      
+      // Save metadata to pdf_documents table
+      const timestamp = new Date().toISOString().slice(0, 10);
+      await supabase.from('pdf_documents').insert({
+        examiner_id: examinerId,
+        report_type: 'examiner report',
+        calculation_id: null,
+        filters: options.filters ? JSON.stringify(options.filters) : null,
+        report_name: `${examiner.full_name} - Full History Report (${timestamp})`,
+        pdf_url: null, // We don't store the actual PDF URL since it's generated on-demand
+        is_favorite: false
+      });
+      
+      return url;
     }
   } catch (error) {
     console.error('Error generating history report:', error);
@@ -123,33 +150,70 @@ export const generateHistoryReport = async (examinerId, options = {}) => {
  */
 export const generateAllExaminersReport = async (options = {}) => {
   try {
-    // Get all examiners and their calculations
-    const { data: examiners, error: examinersError } = await supabase
-      .from('examiners')
-      .select('*')
-      .limit(options.limit || 100);
-      
-    if (examinersError) throw examinersError;
+    console.log('generateAllExaminersReport called with options:', JSON.stringify({
+      download: options.download,
+      fileName: options.fileName,
+      hasExaminersData: !!options.examinersData,
+      examinersDataLength: options.examinersData?.length || 0,
+      filterInfo: options.filterInfo
+    }, null, 2));
     
-    // For each examiner, get their calculations
-    const examinersData = await Promise.all(examiners.map(async (examiner) => {
-      const { data: calculations } = await supabase
-        .from('calculation_documents')
+    // Use provided examinersData if available, otherwise fetch from Supabase
+    let examinersData = options.examinersData;
+    
+    if (!examinersData || examinersData.length === 0) {
+      console.log('No examinersData provided, fetching from Supabase');
+      // Get all examiners and their calculations
+      const { data: examiners, error: examinersError } = await supabase
+        .from('examiners')
         .select('*')
-        .eq('examiner_id', examiner.id)
-        .order('created_at', { ascending: false });
+        .limit(options.limit || 100);
         
-      return {
-        examiner,
-        calculations: calculations || []
-      };
-    }));
+      if (examinersError) {
+        console.error('Error fetching examiners:', examinersError);
+        throw examinersError;
+      }
+      
+      // For each examiner, get their calculations
+      examinersData = await Promise.all(examiners.map(async (examiner) => {
+        const { data: calculations } = await supabase
+          .from('calculation_documents')
+          .select('*')
+          .eq('examiner_id', examiner.id)
+          .order('created_at', { ascending: false });
+          
+        return {
+          examiner,
+          calculations: calculations || []
+        };
+      }));
+    } else {
+      console.log('Using provided examinersData:', examinersData.length, 'examiners');
+    }
+    
+    if (!examinersData || examinersData.length === 0) {
+      console.error('No examiners data available after processing');
+      throw new Error('No examiners data available to generate report');
+    }
     
     // Use a placeholder examiner for the main function call
-    const placeholderExaminer = examiners[0] || { id: 'all', name: 'All Examiners' };
+    const placeholderExaminer = 
+      (examinersData[0]?.examiner) || 
+      { id: 'all', name: 'All Examiners', full_name: 'All Examiners' };
+    
+    console.log('Using placeholder examiner:', placeholderExaminer);
     
     // Generate the PDF
     if (options.download) {
+      console.log('Downloading PDF with data:', {
+        examinersCount: examinersData.length,
+        firstExaminerName: examinersData[0]?.examiner?.full_name || 'Unknown',
+        calculationsPerExaminer: examinersData.map(e => ({
+          examinerName: e.examiner?.full_name || 'Unknown',
+          calculationsCount: e.calculations?.length || 0,
+          firstCalculationId: e.calculations?.[0]?.id || 'none'
+        }))
+      });
       // Download the PDF
       const fileName = options.fileName || `All_Examiners_Report_${new Date().getTime()}.pdf`;
       await downloadPDF(
@@ -159,122 +223,47 @@ export const generateAllExaminersReport = async (options = {}) => {
         ReportTypes.ALL_EXAMINERS, 
         { examinersData, filterInfo: options.filterInfo }
       );
+      
+      // Save metadata to pdf_documents table
+      const timestamp = new Date().toISOString().slice(0, 10);
+      await supabase.from('pdf_documents').insert({
+        examiner_id: null, // No specific examiner for merged reports
+        report_type: 'merged report',
+        calculation_id: null,
+        filters: options.filterInfo ? JSON.stringify(options.filterInfo) : null,
+        report_name: `Merged Examiners Report (${timestamp})`,
+        pdf_url: null, // We don't store the actual PDF URL since it's generated on-demand
+        is_favorite: false
+      });
+      
+      console.log('PDF download initiated');
       return true;
     } else {
+      console.log('Opening PDF in new tab...');
       // Open in new tab
-      return await openPDFInNewTab(
+      const url = await openPDFInNewTab(
         placeholderExaminer, 
         [], 
         ReportTypes.ALL_EXAMINERS, 
         { examinersData, filterInfo: options.filterInfo }
       );
+      
+      // Save metadata to pdf_documents table
+      const timestamp = new Date().toISOString().slice(0, 10);
+      await supabase.from('pdf_documents').insert({
+        examiner_id: null, // No specific examiner for merged reports
+        report_type: 'merged report',
+        calculation_id: null,
+        filters: options.filterInfo ? JSON.stringify(options.filterInfo) : null,
+        report_name: `Merged Examiners Report (${timestamp})`,
+        pdf_url: null, // We don't store the actual PDF URL since it's generated on-demand
+        is_favorite: false
+      });
+      
+      return url;
     }
   } catch (error) {
     console.error('Error generating all examiners report:', error);
     throw error;
   }
 };
-
-/**
- * Generate a custom report based on user-defined criteria
- * @param {object} options - Options for generating the report
- * @returns {Promise<string>} - The URL of the generated PDF
- */
-export const generateCustomReport = async (options = {}) => {
-  try {
-    // Get examiners data from options or fetch it
-    let examinersData = options.examinersData;
-    
-    if (!examinersData) {
-      // Apply filters to get the examiners
-      let query = supabase.from('examiners').select('*');
-      
-      // Apply department filter if specified
-      if (options.filterInfo?.department) {
-        query = query.eq('department', options.filterInfo.department);
-      }
-      
-      // Apply limit
-      query = query.limit(options.limit || 100);
-      
-      // Execute the query
-      const { data: examiners, error: examinersError } = await query;
-      if (examinersError) throw examinersError;
-      
-      // For each examiner, get their calculations with date filtering if needed
-      examinersData = await Promise.all(examiners.map(async (examiner) => {
-        let calcQuery = supabase
-          .from('calculation_documents')
-          .select('*')
-          .eq('examiner_id', examiner.id);
-        
-        // Apply date range filter if specified
-        if (options.filterInfo?.dateFrom) {
-          calcQuery = calcQuery.gte('created_at', options.filterInfo.dateFrom);
-        }
-        if (options.filterInfo?.dateTo) {
-          calcQuery = calcQuery.lte('created_at', options.filterInfo.dateTo);
-        }
-        
-        // Order by date
-        calcQuery = calcQuery.order('created_at', { ascending: false });
-        
-        const { data: calculations } = await calcQuery;
-        
-        return {
-          examiner,
-          calculations: calculations || []
-        };
-      }));
-    }
-    
-    // Use a placeholder examiner for the main function call
-    const placeholderExaminer = (examinersData[0]?.examiner) || { id: 'custom', name: 'Custom Report' };
-    
-    // Generate the PDF
-    if (options.download) {
-      // Download the PDF
-      const fileName = options.fileName || `Custom_Report_${new Date().getTime()}.pdf`;
-      await downloadPDF(
-        placeholderExaminer, 
-        [], 
-        fileName, 
-        ReportTypes.CUSTOM, 
-        {
-          title: options.title || 'Custom Examiner Report',
-          examinersData, 
-          reportConfig: options.reportConfig || {},
-          filterInfo: options.filterInfo || {}
-        }
-      );
-      return true;
-    } else {
-      // Open in new tab
-      return await openPDFInNewTab(
-        placeholderExaminer, 
-        [], 
-        ReportTypes.CUSTOM, 
-        {
-          title: options.title || 'Custom Examiner Report',
-          examinersData, 
-          reportConfig: options.reportConfig || {},
-          filterInfo: options.filterInfo || {}
-        }
-      );
-    }
-  } catch (error) {
-    console.error('Error generating custom report:', error);
-    throw error;
-  }
-};
-
-// Create a named object to export as default
-const reportService = {
-  generateIndividualReport,
-  generateHistoryReport,
-  generateAllExaminersReport,
-  generateCustomReport,
-  ReportTypes
-};
-
-export default reportService; 

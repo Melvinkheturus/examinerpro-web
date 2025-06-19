@@ -4,6 +4,36 @@ import { CalculatorIcon } from './IllustratedIcons';
 import { formatDate } from '../utils/dateUtils';
 
 /**
+ * Helper function to get evaluation days count with improved fallback logic
+ * @param {Object} data - Calculation data
+ * @returns {number} - The number of evaluation days
+ */
+const getEvaluationDaysCount = (data) => {
+  // Check direct total_days property first
+  if (data.total_days && typeof data.total_days === 'number') {
+    return data.total_days;
+  }
+  
+  // Check calculation_days array length
+  if (data.calculation_days && Array.isArray(data.calculation_days)) {
+    return data.calculation_days.length;
+  }
+  
+  // Check evaluationDays array length 
+  if (data.evaluationDays && Array.isArray(data.evaluationDays)) {
+    return data.evaluationDays.length;
+  }
+  
+  // Check days property as fallback
+  if (data.days && typeof data.days === 'number') {
+    return data.days;
+  }
+  
+  // If we've exhausted options, use staff as last resort or return 0
+  return data.total_staff || 0;
+};
+
+/**
  * CalculationCard component - Displays a summary of a calculation record
  * 
  * @param {Object} data - The calculation data
@@ -91,7 +121,7 @@ const CalculationCard = ({ data, onClick }) => {
         <div className="mt-3 pt-3 border-t flex items-center justify-between text-xs">
           <div className={`${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'} rounded-full px-2 py-1 flex items-center ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
             <CalculatorIcon className="w-3 h-3 mr-1" />
-            <span>{data.total_days || 0} days</span>
+            <span>{getEvaluationDaysCount(data)} days</span>
           </div>
           
           <div className={`${

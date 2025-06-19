@@ -8,6 +8,7 @@ import ImageCropper from '../components/ImageCropper';
 import { useTheme } from '../contexts/ThemeContext';
 import { createExaminer, uploadProfilePicture, getExaminerById, updateExaminer } from '../services/examinerService';
 import { CameraIcon } from '@heroicons/react/24/outline';
+import { UserPlusIcon } from '@heroicons/react/24/outline';
 
 // Form validation schema
 const examinerSchema = yup.object({
@@ -156,31 +157,22 @@ const AddExaminer = () => {
   const secondaryButtonTextColor = isDarkMode ? 'text-gray-300' : 'text-gray-700';
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-4xl mx-auto px-4 py-6">
+      {/* Image Cropper Modal */}
+      {showCropper && (
+        <ImageCropper
+          image={originalImage}
+          onCrop={handleCroppedImage}
+          onCancel={handleCancelCrop}
+        />
+      )}
+    
       {/* Header */}
-      <div className="mb-6 flex justify-between items-center">
-        <div>
-          <h1 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'} flex items-center`}>
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-7 h-7 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-            </svg>
-            {isEditing ? 'Edit Examiner' : 'New Examiner'}
-          </h1>
-          <p className={`mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-            {isEditing ? 'Update examiner information and settings' : 'Register a new examiner in the system'}
-          </p>
-        </div>
-        <button
-          onClick={() => navigate('/')}
-          className={`px-4 py-2 border rounded-md flex items-center ${
-            isDarkMode ? 'border-gray-700 text-gray-300 hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-          }`}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
-          Back to Dashboard
-        </button>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'} flex items-center`}>
+          <UserPlusIcon className="w-7 h-7 mr-2" />
+          {isEditing ? 'Edit Examiner' : 'Add New Examiner'}
+        </h1>
       </div>
       
       {/* Loading State */}
@@ -391,16 +383,6 @@ const AddExaminer = () => {
             </div>
           </div>
         </form>
-      )}
-      
-      {/* Image Cropper Modal */}
-      {showCropper && (
-        <ImageCropper
-          image={originalImage}
-          onCrop={handleCroppedImage}
-          onCancel={handleCancelCrop}
-          aspect={1}
-        />
       )}
     </div>
   );

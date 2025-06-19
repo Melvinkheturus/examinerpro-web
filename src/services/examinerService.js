@@ -353,34 +353,60 @@ export const getExaminerStatistics = async (examinerId) => {
  */
 export const uploadProfilePicture = async (examinerId, file) => {
   try {
-    // Generate a unique file path
-    const fileExt = file.name.split('.').pop();
-    const fileName = `profile-${examinerId}-${Date.now()}.${fileExt}`;
-    const filePath = fileName;
+    // First, get the examiner info to access the full name
+    const examiner = await getExaminerById(examinerId);
+    
+    if (!examiner || !examiner.full_name) {
+      throw new Error('Unable to retrieve examiner information for file naming');
+    }
+    
+    // Format the full name to be URL-friendly (lowercase, replace spaces with underscores)
+    const formattedName = examiner.full_name
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/[^a-z0-9_]/g, ''); // Remove any non-alphanumeric characters except underscores
+    
+    // Get the file extension
+    const fileExt = file.name.split('.').pop().toLowerCase();
+    
+    // Format the filename according to the required pattern
+    const fileName = `examiner_${formattedName}.${fileExt}`;
     
     // Upload the file to Supabase Storage
     const { error: uploadError } = await supabase
       .storage
-      .from('examiner-profiles')  // Updated bucket name
-      .upload(filePath, file);
+      .from('examiner-profiles')
+      .upload(fileName, file, { 
+        cacheControl: '3600',
+        upsert: true // This will overwrite existing files with the same name
+      });
     
     if (uploadError) throw uploadError;
     
     // Get the public URL for the file
     const { data: publicUrlData } = supabase
       .storage
-      .from('examiner-profiles')  // Updated bucket name
-      .getPublicUrl(filePath);
+      .from('examiner-profiles')
+      .getPublicUrl(fileName);
+    
+    if (!publicUrlData || !publicUrlData.publicUrl) {
+      throw new Error('Failed to get public URL for uploaded file');
+    }
+    
+    // Add a timestamp parameter to force browsers to reload the image if it's updated
+    const timestampedUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
     
     // Update the examiner's profile_url field
     const { error: updateError } = await supabase
       .from('examiners')
-      .update({ profile_url: publicUrlData.publicUrl })
-      .eq('examiner_id', examinerId);
+      .update({ profile_url: timestampedUrl })
+      .eq('id', examinerId);
     
     if (updateError) throw updateError;
     
-    return publicUrlData.publicUrl;
+    console.log(`Profile picture successfully uploaded with filename: ${fileName}`);
+    
+    return timestampedUrl;
   } catch (error) {
     console.error(`Error uploading profile picture for examiner with ID ${examinerId}:`, error);
     throw error;

@@ -1,10 +1,9 @@
 import React from 'react';
 import { PDFDownloadLink, PDFViewer, pdf, Font } from '@react-pdf/renderer';
 import ExaminerReportPDF from './ExaminerReportPDF';
-import IndividualExaminerReportPDF from './IndividualExaminerReportPDF';
-import ExaminerHistoryReportPDF from './ExaminerHistoryReportPDF';
-import AllExaminersReportPDF from './AllExaminersReportPDF';
-import CustomReportPDF from './CustomReportPDF';
+import IndividualExaminerReportPDF from './IndividualReportPDF';
+import ExaminerHistoryReportPDF from './ExaminerReportPDF';
+import AllExaminersReportPDF from './MergedReportPDF';
 
 // Buffer polyfill for browser environment
 if (typeof window !== 'undefined' && typeof window.Buffer === 'undefined') {
@@ -89,8 +88,7 @@ Font.default = {
 export const ReportTypes = {
   INDIVIDUAL: 'individual',
   HISTORY: 'history',
-  ALL_EXAMINERS: 'all-examiners',
-  CUSTOM: 'custom'
+  ALL_EXAMINERS: 'all-examiners'
 };
 
 /**
@@ -103,20 +101,99 @@ export const ReportTypes = {
  */
 export const generatePDFBlob = async (examiner, calculations, reportType = ReportTypes.INDIVIDUAL, options = {}) => {
   try {
+    console.log(`Generating PDF blob for report type: ${reportType}`, { 
+      hasExaminer: !!examiner, 
+      calculationsCount: calculations?.length || 0,
+      options: {
+        hasExaminersData: !!options.examinersData,
+        examinersDataCount: options.examinersData?.length || 0,
+        hasFilterInfo: !!options.filterInfo
+      }
+    });
+    
     let component;
     
     switch (reportType) {
       case ReportTypes.INDIVIDUAL:
+        console.log('Creating Individual Report component');
+        
+        // Format staffDetails to ensure day-level breakdown is preserved
+        let formattedStaffDetails = options.staffDetails || [];
+        const calculation = calculations[0];
+        
+        // Check if we need to preprocess staffDetails to ensure proper day-wise structure
+        if (formattedStaffDetails.length > 0) {
+          // Count the number of unique evaluation dates for debugging
+          const uniqueDates = new Set(
+            formattedStaffDetails.map(s => 
+              s.evaluationDate || s.evaluation_date || s.date
+            ).filter(Boolean)
+          );
+          
+          console.log('Original staffDetails structure:', 
+            formattedStaffDetails.slice(0, 3).map(s => ({
+              date: s.evaluationDate || s.evaluation_date || s.date,
+              name: s.staffName || s.name || s.staff_name,
+              papers: s.papersEvaluated || s.papers_evaluated || s.papers
+            }))
+          );
+          
+          console.log(`Staff details contain ${uniqueDates.size} unique evaluation dates:`, 
+            Array.from(uniqueDates).sort()
+          );
+          
+          // Make sure each staff entry has the evaluation date
+          formattedStaffDetails = formattedStaffDetails.map(staff => {
+            // Ensure staff has an evaluation date
+            if (!staff.evaluationDate && !staff.evaluation_date && !staff.date) {
+              // Try to find the date from calculation days if possible
+              if (calculation?.calculation_days?.length > 0) {
+                const day = calculation.calculation_days.find(d => 
+                  d.id === staff.day_id || 
+                  d.evaluation_days?.id === staff.day_id || 
+                  d.evaluation_day_id === staff.day_id ||
+                  d.evaluation_days?.id === staff.evaluation_day_id
+                );
+                if (day) {
+                  staff.evaluationDate = day.evaluation_date || day.evaluation_days?.evaluation_date;
+                }
+              }
+              
+              // If still no date, use a default
+              if (!staff.evaluationDate) {
+                staff.evaluationDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+              }
+            }
+            return staff;
+          });
+          
+          // Log the processed staff details
+          console.log(`Formatted ${formattedStaffDetails.length} staff details`);
+        } 
+        // If no staff details provided, try to extract them from calculation
+        else if (calculation) {
+          console.log('No staffDetails provided, extracting from calculation');
+          // Will be handled by the IndividualReportPDF component
+        }
+        
+        // Ensure each staff entry has consistent property naming
+        formattedStaffDetails = formattedStaffDetails.map(staff => ({
+          evaluationDate: staff.evaluationDate || staff.evaluation_date || staff.date || 'Unknown Date',
+          staffName: staff.staffName || staff.staff_name || staff.name || 'Unknown Staff',
+          papersEvaluated: staff.papersEvaluated || staff.papers_evaluated || staff.papers || 0
+        }));
+        
         component = (
           <IndividualExaminerReportPDF 
             examiner={examiner} 
-            calculation={calculations[0]} 
-            staffDetails={options.staffDetails || []} 
+            calculation={calculation} 
+            staffDetails={formattedStaffDetails}
           />
         );
         break;
       
       case ReportTypes.HISTORY:
+        console.log('Creating History Report component');
         component = (
           <ExaminerHistoryReportPDF 
             examiner={examiner} 
@@ -126,36 +203,38 @@ export const generatePDFBlob = async (examiner, calculations, reportType = Repor
         break;
       
       case ReportTypes.ALL_EXAMINERS:
+        console.log('Creating Merged Report component with examiners data:', {
+          examinersCount: options.examinersData?.length || 0,
+          firstExaminerName: options.examinersData?.[0]?.examiner?.full_name || 'Unknown',
+          totalCalculations: options.examinersData?.reduce((sum, e) => sum + (e.calculations?.length || 0), 0) || 0,
+          hasFilterInfo: Boolean(options.filterInfo)
+        });
         component = (
-          <AllExaminersReportPDF 
-            examinersData={options.examinersData || []} 
-            filterInfo={options.filterInfo || {}}
-          />
-        );
-        break;
-      
-      case ReportTypes.CUSTOM:
-        component = (
-          <CustomReportPDF 
-            title={options.title || 'Custom Examiner Report'}
-            examinersData={options.examinersData || []}
-            reportConfig={options.reportConfig || {}}
+          <AllExaminersReportPDF
+            examiners={options.examinersData || []}
             filterInfo={options.filterInfo || {}}
           />
         );
         break;
       
       default:
+        console.log('Using default ExaminerReportPDF component');
         // Legacy/default behavior - use the original ExaminerReportPDF
         component = <ExaminerReportPDF examiner={examiner} calculations={calculations} />;
     }
     
+    console.log('Starting PDF rendering with @react-pdf/renderer');
     const blob = await pdf(component).toBlob();
     
-    if (!blob) throw new Error("No blob generated");
+    if (!blob) {
+      console.error('PDF generation failed: No blob was returned from pdf().toBlob()');
+      throw new Error("No blob generated");
+    }
+    
+    console.log(`PDF blob successfully created: ${blob.size} bytes`);
     return blob;
   } catch (error) {
-    console.error('Error generating PDF blob:', error);
+    console.error('Error generating PDF:', error);
     throw error;
   }
 };
@@ -189,22 +268,41 @@ export const generatePDFBlobURL = async (examiner, calculations) => {
  */
 export const downloadPDF = async (examiner, calculations, fileName = 'Examiner_Report.pdf', reportType = ReportTypes.INDIVIDUAL, options = {}) => {
   try {
-    const blob = await generatePDFBlob(examiner, calculations, reportType, options);
-    const url = URL.createObjectURL(blob);
+    console.log('Starting PDF generation for download:', { reportType, fileName });
     
+    // Generate the PDF blob
+    const blob = await generatePDFBlob(examiner, calculations, reportType, options);
+    console.log('PDF Blob generated successfully:', blob.size, 'bytes');
+    
+    // Create a blob URL with explicit PDF mime type
+    const blobWithType = new Blob([blob], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blobWithType);
+    
+    // Create download element off-screen
     const link = document.createElement('a');
     link.href = url;
     link.download = fileName;
+    link.setAttribute('type', 'application/pdf');
+    link.style.display = 'none';
     document.body.appendChild(link);
+    
+    console.log('Download link created:', link.href);
+    
+    // Simulate a click and provide a longer timeout for browser to handle the download
     link.click();
+    console.log('Download initiated');
     
-    // Clean up
-    setTimeout(() => {
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    }, 100);
-    
-    return true;
+    // Clean up with a longer timeout to ensure browser has time to process the download
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        if (document.body.contains(link)) {
+          document.body.removeChild(link);
+        }
+        URL.revokeObjectURL(url);
+        console.log('Download cleanup completed');
+        resolve(true);
+      }, 2000); // Increased timeout to 2 seconds
+    });
   } catch (error) {
     console.error('Error downloading PDF:', error);
     throw error;

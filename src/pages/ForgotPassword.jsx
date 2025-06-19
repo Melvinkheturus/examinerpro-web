@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import LoginLayout from './LoginLayout';
 import { useAuth } from '../contexts/AuthContext';
-import AuthLayout from './AuthLayout';
 
 const ForgotPassword = () => {
   const [email, setEmail] = useState('');
@@ -32,7 +32,7 @@ const ForgotPassword = () => {
   };
 
   return (
-    <AuthLayout>
+    <LoginLayout>
       <div className="animate__animated animate__fadeInRight h-full flex items-center justify-center">
         <div className="bg-white bg-opacity-90 rounded-lg shadow-md overflow-hidden transform transition-all hover:scale-105 w-full">
           <div className="px-4 py-5 sm:p-6">
@@ -106,7 +106,7 @@ const ForgotPassword = () => {
           </div>
         </div>
       </div>
-    </AuthLayout>
+    </LoginLayout>
   );
 };
 

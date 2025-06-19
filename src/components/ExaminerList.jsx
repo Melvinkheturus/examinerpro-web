@@ -63,33 +63,33 @@ const ExaminerCard = ({ examiner, viewMode, onClick, isHighlighted, onExaminerDe
   if (viewMode === 'grid') {
     return (
       <div 
-        className={`${cardBg} rounded-lg shadow-sm border ${borderColor} overflow-hidden hover:shadow-md transform transition-all duration-300 hover:scale-105 hover:-translate-y-1 cursor-pointer ${highlightStyle}`}
+        className={`w-full h-[250px] ${cardBg} rounded-lg shadow-sm border ${borderColor} overflow-hidden hover:shadow-md transform transition-all duration-300 hover:scale-105 hover:-translate-y-1 cursor-pointer ${highlightStyle}`}
         onClick={handleClick}
       >
-        <div className="p-4 flex flex-col items-center text-center">
+        <div className="p-3 h-full flex flex-col items-center text-center">
           {/* Centered Profile Picture */}
-          <div className="mb-3">
+          <div className="mb-2">
             <img 
               src={getProfileImage(examiner)} 
               alt={`${examiner.name} profile`} 
-              className="w-20 h-20 rounded-full object-cover border-2 border-gray-200 mx-auto"
+              className="w-14 h-14 rounded-full object-cover border-2 border-gray-200 mx-auto"
             />
           </div>
           
-          <div className="mb-3">
-            <h3 className={`font-semibold ${textColor}`}>{examiner.name}</h3>
-            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+          <div className="flex-1 flex flex-col justify-center mb-2 w-full">
+            <h3 className={`font-semibold text-sm leading-snug ${textColor}`}>{examiner.name}</h3>
+            <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
               ID: {examiner.examinerId || examiner.id}
             </p>
-            <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+            <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
               {examiner.department}
             </p>
-            <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} italic`}>
               {examiner.position}
             </p>
           </div>
           
-          <div className="mt-2 pt-3 border-t border-gray-200 w-full">
+          <div className="mt-auto pt-2 border-t border-gray-200 w-full">
             {/* Edit and Delete buttons - always visible */}
             <div className="flex justify-center space-x-3">
               <button 
@@ -121,7 +121,7 @@ const ExaminerCard = ({ examiner, viewMode, onClick, isHighlighted, onExaminerDe
   // List view
   return (
     <div 
-      className={`${cardBg} rounded-lg shadow-sm border ${borderColor} p-4 transform transition-all duration-300 hover:shadow-md hover:scale-[1.01] hover:-translate-y-0.5 cursor-pointer ${highlightStyle}`}
+      className={`w-full ${cardBg} rounded-lg shadow-sm border ${borderColor} p-4 transform transition-all duration-300 hover:shadow-md hover:scale-[1.01] hover:-translate-y-0.5 cursor-pointer ${highlightStyle}`}
       onClick={handleClick}
     >
       <div className="flex items-center justify-between w-full">
@@ -179,6 +179,9 @@ const ExaminerList = ({ examiners = [], isLoading = false, viewMode = 'grid', on
   const { isDarkMode } = useTheme();
   const highlightedCardRef = useRef(null);
   
+  // Define isSidebarCollapsed at the component level so it's available throughout
+  const isSidebarCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
+  
   // Scroll to highlighted examiner when the ID changes
   useEffect(() => {
     if (highlightedExaminerId && highlightedCardRef.current) {
@@ -218,18 +221,31 @@ const ExaminerList = ({ examiners = [], isLoading = false, viewMode = 'grid', on
     );
   }
   
+  // Determine grid layout based on sidebar state and view mode
+  let gridClasses = 'w-full';
+  
+  if (viewMode === 'grid') {
+    if (isSidebarCollapsed) {
+      // Match the grey box layout in collapsed view with more padding
+      gridClasses += ' grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-4 gap-4 px-3 py-2';
+    } else {
+      // Keep the original layout for expanded view
+      gridClasses += ' grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-4 gap-4 sm:gap-6';
+    }
+  } else {
+    gridClasses += ' space-y-3';
+  }
+  
   // Render the grid/list
   return (
-    <div className={viewMode === 'grid' 
-      ? 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4' 
-      : 'space-y-3'
-    }>
+    <div className={gridClasses}>
       {examiners.map((examiner) => {
         const isHighlighted = highlightedExaminerId === examiner.id;
         return (
           <div 
             key={examiner.id}
             ref={isHighlighted ? highlightedCardRef : null}
+            className={viewMode === 'grid' ? (isSidebarCollapsed ? 'w-full bg-gray-300/30 rounded-lg p-3' : 'flex justify-center items-center w-full') : 'w-full'}
           >
             <ExaminerCard 
               examiner={examiner} 

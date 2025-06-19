@@ -1,18 +1,5 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import { createClient } from '@supabase/supabase-js';
-
-// Initialize Supabase client
-const supabaseUrl = 'https://zampawknbmlrnhsaacqm.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphbXBhd2tuYm1scm5oc2FhY3FtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE1MDYyNDksImV4cCI6MjA1NzA4MjI0OX0.IpNVkj9_ErG77aNbzXPULI4IXM6_iU2DAgFtLMZoUCA';
-const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true,
-    flowType: 'pkce',
-    redirectTo: 'https://zampawknbmlrnhsaacqm.supabase.co/auth/v1/callback'
-  }
-});
+import { supabase } from '../lib/supabase';
 
 // Create context
 const AuthContext = createContext();
