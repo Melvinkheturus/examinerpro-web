@@ -67,6 +67,9 @@ const ExaminerHistory = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(9);
 
+  // Define styling variables
+  const hoverTransition = 'transition-all duration-300 ease-in-out';
+
   // Fetch examiner data
   useEffect(() => {
     const fetchExaminer = async () => {
@@ -401,24 +404,15 @@ const ExaminerHistory = () => {
     return (
       <div 
         key={calculation.id}
-        className={`border ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} rounded-lg shadow-md p-3 flex items-center transition-all duration-300 hover:shadow-lg overflow-x-auto`}
+        className={`grid grid-cols-12 gap-2 items-center py-2 ${hoverTransition} hover:bg-gray-50 dark:hover:bg-gray-750 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}
       >
-        <div className="flex-shrink-0 w-8 text-center">
-          {index + 1 + indexOfFirstItem}.
-        </div>
-        
-        {/* Checkbox for bulk selection */}
-        <div className="flex-shrink-0 mr-3">
+        <div className="col-span-1 px-2 flex items-center space-x-2">
           <input
             type="checkbox"
             checked={selectedItems.includes(calculation.id)}
             onChange={() => handleItemSelection(calculation.id)}
             className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
           />
-        </div>
-        
-        {/* Favorite star */}
-        <div className="flex-shrink-0 mr-4">
           <button
             onClick={() => handleToggleFavorite(calculation.id, calculation.is_favorite)}
             className="text-yellow-400 hover:text-yellow-500"
@@ -431,47 +425,63 @@ const ExaminerHistory = () => {
           </button>
         </div>
         
-        {/* Main content */}
-        <div className="flex-grow min-w-0">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span className="font-medium whitespace-nowrap">
-              <FiCalendar className="inline-block mr-1" />
+        <div className="col-span-3 px-2">
+          <div className="flex items-center">
+            <FiCalendar className="mr-2 text-gray-500" />
+            <div className="text-sm font-medium">
               {formatDate(calculation.created_at)}
-            </span>
-            <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} whitespace-nowrap`}>
-              Papers: {calculation.total_papers || 0}
-            </span>
-            <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} whitespace-nowrap`}>
-              Staff: {calculation.total_staff || 0}
-            </span>
-            <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} whitespace-nowrap`}>
-              Days: {getEvaluationDaysCount(calculation)}
-            </span>
-            <span className={`text-sm font-medium ${isDarkMode ? 'text-green-400' : 'text-green-600'} whitespace-nowrap`}>
-              <FiDollarSign className="inline-block mr-1" /> ${calculation.final_amount?.toFixed(2) || '0.00'}
-            </span>
+            </div>
           </div>
         </div>
         
-        {/* Actions */}
-        <div className="flex-shrink-0 flex items-center space-x-2 ml-2">
+        <div className="col-span-2 px-2 hidden md:block">
+          <div className="flex items-center">
+            <FiFileText className="mr-2 text-gray-500" />
+            <div className="text-sm">
+              {calculation.total_papers || 0} papers
+            </div>
+          </div>
+        </div>
+        
+        <div className="col-span-2 px-2 hidden md:block">
+          <div className="flex items-center">
+            <FiUsers className="mr-2 text-gray-500" />
+            <div className="text-sm">
+              {calculation.total_staff || 0} staff
+            </div>
+          </div>
+        </div>
+        
+        <div className="col-span-2 px-2">
+          <div className="flex items-center">
+            <FiDollarSign className="mr-1 text-green-600" />
+            <div className="text-sm font-medium text-green-600">
+              ${calculation.final_amount?.toFixed(2) || '0.00'}
+            </div>
+          </div>
+        </div>
+        
+        <div className="col-span-4 md:col-span-2 px-2 flex items-center justify-end space-x-1">
           <button
             onClick={() => navigate(`/calculations/view/${calculation.id}`)}
-            className="px-2 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 transition flex items-center"
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/20 transition-colors"
+            title="View Details"
           >
-            <FiEye className="mr-1" /> View
+            <FiEye className="h-4 w-4" />
           </button>
           <button
             onClick={() => window.open(calculation.pdf_url, '_blank')}
-            className="px-2 py-1 bg-green-500 text-white text-sm rounded hover:bg-green-600 transition flex items-center"
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-green-600 hover:bg-green-100 dark:hover:bg-green-900/20 transition-colors"
+            title="Download PDF"
           >
-            <FiDownload className="mr-1" /> Download
+            <FiDownload className="h-4 w-4" />
           </button>
           <button
             onClick={() => console.log('Delete calculation:', calculation.id)}
-            className="px-2 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 transition flex items-center"
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/20 transition-colors"
+            title="Delete"
           >
-            <FiTrash2 className="mr-1" /> Delete
+            <FiTrash2 className="h-4 w-4" />
           </button>
         </div>
       </div>
@@ -556,25 +566,16 @@ const ExaminerHistory = () => {
     return (
       <div 
         key={pdf.id}
-        className={`border ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} rounded-lg shadow-md p-3 flex items-center transition-all duration-300 hover:shadow-lg overflow-x-auto`}
+        className={`grid grid-cols-12 gap-2 items-center py-2 ${hoverTransition} hover:bg-gray-50 dark:hover:bg-gray-750 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}
         style={{ borderLeft: '4px solid #10B981' }} // Green border for PDF type indication
       >
-        <div className="flex-shrink-0 w-8 text-center">
-          {index + 1 + indexOfFirstItem}.
-        </div>
-        
-        {/* Checkbox for bulk selection */}
-        <div className="flex-shrink-0 mr-3">
+        <div className="col-span-1 px-2 flex items-center space-x-2">
           <input
             type="checkbox"
             checked={selectedItems.includes(pdf.id)}
             onChange={() => handleItemSelection(pdf.id)}
             className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
           />
-        </div>
-        
-        {/* Favorite star */}
-        <div className="flex-shrink-0 mr-4">
           <button
             onClick={() => handleToggleFavorite(pdf.id, pdf.is_favorite)}
             className="text-yellow-400 hover:text-yellow-500"
@@ -587,44 +588,57 @@ const ExaminerHistory = () => {
           </button>
         </div>
         
-        {/* Main content */}
-        <div className="flex-grow min-w-0">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span className={`font-medium truncate max-w-[180px] ${isDarkMode ? 'text-white' : 'text-gray-800'}`} title={pdf.calculation_name || 'Unnamed PDF'}>
+        <div className="col-span-3 px-2">
+          <div className="text-sm font-medium truncate" title={pdf.calculation_name || 'Unnamed PDF'}>
               {pdf.calculation_name || 'Unnamed PDF'}
-            </span>
-            <span className="font-medium whitespace-nowrap">
-              <FiCalendar className="inline-block mr-1" />
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center">
+            <FiCalendar className="mr-1" />
               {formatDate(pdf.created_at)}
-            </span>
-            <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} whitespace-nowrap`}>
-              Papers: {pdf.total_papers || 0}
-            </span>
-            <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} whitespace-nowrap`}>
-              Staff: {pdf.total_staff || 0}
-            </span>
-            <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} whitespace-nowrap`}>
-              Days: {getEvaluationDaysCount(pdf)}
-            </span>
-            <span className={`text-sm font-medium ${isDarkMode ? 'text-green-400' : 'text-green-600'} whitespace-nowrap`}>
-              <FiDollarSign className="inline-block mr-1" /> ${pdf.final_amount?.toFixed(2) || '0.00'}
-            </span>
           </div>
         </div>
         
-        {/* Actions */}
-        <div className="flex-shrink-0 flex items-center space-x-2 ml-2">
+        <div className="col-span-2 px-2 hidden md:block">
+          <div className="flex items-center">
+            <FiFileText className="mr-2 text-gray-500" />
+            <div className="text-sm">
+              {pdf.total_papers || 0} papers
+            </div>
+          </div>
+        </div>
+        
+        <div className="col-span-2 px-2 hidden md:block">
+          <div className="flex items-center">
+            <FiUsers className="mr-2 text-gray-500" />
+            <div className="text-sm">
+              {pdf.total_staff || 0} staff
+            </div>
+          </div>
+        </div>
+        
+        <div className="col-span-2 px-2">
+          <div className="flex items-center">
+            <FiDollarSign className="mr-1 text-green-600" />
+            <div className="text-sm font-medium text-green-600">
+              ${pdf.final_amount?.toFixed(2) || '0.00'}
+            </div>
+          </div>
+        </div>
+        
+        <div className="col-span-4 md:col-span-2 px-2 flex items-center justify-end space-x-1">
           <button
             onClick={() => window.open(pdf.pdf_url, '_blank')}
-            className="px-2 py-1 bg-green-500 text-white text-sm rounded hover:bg-green-600 transition flex items-center"
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-green-600 hover:bg-green-100 dark:hover:bg-green-900/20 transition-colors"
+            title="Download PDF"
           >
-            <FiDownload className="mr-1" /> Download
+            <FiDownload className="h-4 w-4" />
           </button>
           <button
             onClick={() => console.log('Delete PDF:', pdf.id)}
-            className="px-2 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 transition flex items-center"
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/20 transition-colors"
+            title="Delete"
           >
-            <FiTrash2 className="mr-1" /> Delete
+            <FiTrash2 className="h-4 w-4" />
           </button>
         </div>
       </div>

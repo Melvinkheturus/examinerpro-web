@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import calculationService from '../services/calculationService';
 import toast from 'react-hot-toast';
 import { useTheme } from '../contexts/ThemeContext';
@@ -7,9 +7,11 @@ import { formatDate } from '../utils/dateUtils';
 import {
   getAllPdfDocumentsWithExaminers,
 } from '../services/calculationService';
+import { useNavigate } from 'react-router-dom';
 
 const PDFArchive = () => {
   const { isDarkMode } = useTheme();
+  const navigate = useNavigate();
   
   // State variables
   const [documents, setDocuments] = useState([]);
@@ -24,6 +26,10 @@ const PDFArchive = () => {
   const [dateRange, setDateRange] = useState('all'); // 'today', 'week', 'month', 'year', 'custom', 'all'
   const [customDateRange, setCustomDateRange] = useState({ start: null, end: null });
   const [typeFilter, setTypeFilter] = useState('all'); // 'all', 'individual', 'history', 'merged', 'custom'
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  
+  // Refs for handling outside clicks
+  const datePickerRef = useRef(null);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -358,6 +364,20 @@ const PDFArchive = () => {
     console.log(`Page ${currentPage} of ${totalPages} (${paginatedDocs.length} items)`);
   }, [currentPage, totalPages, paginatedDocs]);
 
+  // Handle clicks outside of the date picker
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (datePickerRef.current && !datePickerRef.current.contains(event.target)) {
+        setShowDatePicker(false);
+      }
+    }
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   // Render document grid with new design
   const renderDocumentGrid = (documents) => {
     // Get the current slice of documents for pagination
@@ -568,39 +588,40 @@ const PDFArchive = () => {
     return (
       <div>
       <div className={`${cardBg} rounded-lg shadow overflow-hidden border ${borderColor}`}>
+          {/* Table header */}
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-700">
-              <tr>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+            <div className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              {/* Header row */}
+              <div className="bg-gray-50 dark:bg-gray-700">
+                <div className="grid grid-cols-12 gap-2">
+                  <div className="col-span-1 px-4 py-3 text-left">
                   <input 
                     type="checkbox" 
                     checked={selectedDocs.length === documents.length && documents.length > 0}
                     onChange={handleSelectAll}
                     className="h-4 w-4 text-blue-600 border-gray-300 rounded"
                   />
-                </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  </div>
+                  <div className="col-span-4 px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Document Name
-                </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  </div>
+                  <div className="col-span-2 px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Generated At
-                </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Examiner Name
-                </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Department
-                </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  </div>
+                  <div className="col-span-2 px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Examiner
+                  </div>
+                  <div className="hidden md:block col-span-1 px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Type
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  </div>
+                  <div className="col-span-2 px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                   Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  </div>
+                </div>
+              </div>
+
+              {/* Table body */}
+              <div className="divide-y divide-gray-200 dark:divide-gray-700">
                 {paginatedDocs.map(doc => {
                   // Determine badge colors based on document type
                   let typeBgColor = '';
@@ -634,54 +655,49 @@ const PDFArchive = () => {
                   }
 
                   return (
-                <tr key={doc.id} className={`${hoverTransition} hover:bg-gray-50 dark:hover:bg-gray-750`}>
-                  <td className="px-4 py-3 whitespace-nowrap">
+                    <div key={doc.id} className={`grid grid-cols-12 gap-2 items-center py-2 ${hoverTransition} hover:bg-gray-50 dark:hover:bg-gray-750`}>
+                      <div className="col-span-1 px-4">
                     <input 
                       type="checkbox" 
                       checked={selectedDocs.includes(doc.id)}
                       onChange={() => handleSelectDocument(doc.id)}
                       className="h-4 w-4 text-blue-600 border-gray-300 rounded"
                     />
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0 h-10 w-10 flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded">
+                      </div>
+                      <div className="col-span-4 px-4 flex items-center">
+                        <div className="flex-shrink-0 h-10 w-10 flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded mr-3">
                         <svg className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
                       </div>
-                      <div className="ml-4">
-                            <div className={`text-sm font-bold ${textColor}`}>
+                        <div className="truncate">
+                          <div className={`text-sm font-medium ${textColor}`}>
                           {doc.file_name}
                         </div>
                       </div>
                     </div>
-                  </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="col-span-2 px-4">
                         <div className={`text-sm ${textColor}`}>
                           {formatDate(doc.created_at)}
                     </div>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
+                      </div>
+                      <div className="col-span-2 px-4">
                     <div className={`text-sm ${textColor}`}>
                       {doc.examinerName || 'Unknown'}
                     </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className={`text-sm ${textColor}`}>
+                        <div className={`text-xs ${secondaryText}`}>
                       {doc.department || 'N/A'}
                     </div>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
+                      </div>
+                      <div className="hidden md:block col-span-1 px-4">
                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full
                           ${typeBgColor} ${typeTextColor}
                           dark:opacity-90
                     `}>
                           {typeLabel}
                     </span>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center justify-center space-x-3">
+                      </div>
+                      <div className="col-span-2 px-4 flex items-center justify-center space-x-2">
                       <button 
                         onClick={() => handleDownload(doc.id, doc.file_name)}
                             className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/20 transition-colors"
@@ -730,12 +746,11 @@ const PDFArchive = () => {
                         </svg>
                       </button>
                     </div>
-                  </td>
-                </tr>
+                    </div>
                   );
                 })}
-            </tbody>
-          </table>
+              </div>
+            </div>
         </div>
         </div>
         
@@ -797,6 +812,79 @@ const PDFArchive = () => {
       console.error('Error viewing PDF:', error);
       toast.error('Failed to view PDF: ' + (error.message || 'Unknown error'));
     }
+  };
+
+  // Handle date range change
+  const handleDateRangeChange = (newDateRange) => {
+    setDateRange(newDateRange);
+    
+    // Close the date picker if not custom
+    if (newDateRange !== 'custom') {
+      setShowDatePicker(false);
+    }
+    
+    // Handle custom date range
+    if (newDateRange === 'custom') {
+      // Keep the date picker open for custom range
+    } else {
+      // Set appropriate date ranges based on selection
+      const today = new Date();
+      
+      switch(newDateRange) {
+        case 'today':
+          setCustomDateRange({
+            start: formatDateString(today),
+            end: formatDateString(today)
+          });
+          break;
+        case 'yesterday':
+          const yesterday = new Date(today);
+          yesterday.setDate(yesterday.getDate() - 1);
+          setCustomDateRange({
+            start: formatDateString(yesterday),
+            end: formatDateString(yesterday)
+          });
+          break;
+        case 'week':
+          const lastWeek = new Date(today);
+          lastWeek.setDate(lastWeek.getDate() - 7);
+          setCustomDateRange({
+            start: formatDateString(lastWeek),
+            end: formatDateString(today)
+          });
+          break;
+        case 'month':
+          const lastMonth = new Date(today);
+          lastMonth.setDate(lastMonth.getDate() - 30);
+          setCustomDateRange({
+            start: formatDateString(lastMonth),
+            end: formatDateString(today)
+          });
+          break;
+        case 'thisMonth':
+          const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+          setCustomDateRange({
+            start: formatDateString(firstDayOfMonth),
+            end: formatDateString(today)
+          });
+          break;
+        case 'year':
+          const firstDayOfYear = new Date(today.getFullYear(), 0, 1);
+          setCustomDateRange({
+            start: formatDateString(firstDayOfYear),
+            end: formatDateString(today)
+          });
+          break;
+        default:
+          setCustomDateRange({ start: null, end: null });
+          break;
+      }
+    }
+  };
+  
+  // Helper function to format date as YYYY-MM-DD
+  const formatDateString = (date) => {
+    return date.toISOString().split('T')[0];
   };
 
   return (
@@ -869,68 +957,143 @@ const PDFArchive = () => {
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                className={`h-10 pl-3 pr-8 rounded-lg appearance-none ${inputBg} ${inputBorder} border text-${isDarkMode ? 'white' : 'gray-800'} focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
+                className={`h-10 pl-3 pr-8 rounded-lg appearance-none ${inputBg} ${inputBorder} border text-${isDarkMode ? 'white' : 'gray-800'} focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs`}
               >
-                <option value="date_desc">Newest First</option>
+                <option value="date_desc">Sort</option>
                 <option value="date_asc">Oldest First</option>
                 <option value="name_asc">Name (A-Z)</option>
                 <option value="name_desc">Name (Z-A)</option>
                 <option value="examiner_asc">Examiner (A-Z)</option>
                 <option value="examiner_desc">Examiner (Z-A)</option>
               </select>
-              <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                <svg className={`h-4 w-4 ${secondaryText}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
-              </div>
             </div>
 
             <div className="relative">
               <select
                 value={groupBy}
                 onChange={(e) => setGroupBy(e.target.value)}
-                className={`h-10 pl-3 pr-8 rounded-lg appearance-none ${inputBg} ${inputBorder} border text-${isDarkMode ? 'white' : 'gray-800'} focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
+                className={`h-10 pl-3 pr-8 rounded-lg appearance-none ${inputBg} ${inputBorder} border text-${isDarkMode ? 'white' : 'gray-800'} focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs`}
               >
-                <option value="none">No Grouping</option>
+                <option value="none">Group By</option>
                 <option value="examiner">Group by Examiner</option>
                 <option value="department">Group by Department</option>
                 <option value="type">Group by Type</option>
                 <option value="month">Group by Month</option>
               </select>
-              <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                <svg className={`h-4 w-4 ${secondaryText}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
-              </div>
             </div>
 
             <div className="relative">
               <select
                 value={typeFilter}
                 onChange={(e) => setTypeFilter(e.target.value)}
-                className={`h-10 pl-3 pr-8 rounded-lg appearance-none ${inputBg} ${inputBorder} border text-${isDarkMode ? 'white' : 'gray-800'} focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
+                className={`h-10 pl-3 pr-8 rounded-lg appearance-none ${inputBg} ${inputBorder} border text-${isDarkMode ? 'white' : 'gray-800'} focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs`}
               >
-                <option value="all">All Types</option>
+                <option value="all">Type</option>
                 <option value="individual">Individual Report</option>
                 <option value="history">Examiner Report</option>
                 <option value="merged">Merged Report</option>
               </select>
-              <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                <svg className={`h-4 w-4 ${secondaryText}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
               </div>
+
+            {/* Time Filter Button */}
+            <div className="relative" ref={datePickerRef}>
+              <button
+                className={`h-10 px-3 rounded-lg ${inputBg} ${inputBorder} border text-${isDarkMode ? 'white' : 'gray-800'} text-xs flex items-center justify-center`}
+                onClick={() => setShowDatePicker(!showDatePicker)}
+              >
+                <span className="mr-1 flex-shrink-0">📅</span>
+                <span>Time Filter</span>
+              </button>
+              
+              {showDatePicker && (
+                <div className={`absolute z-30 mt-1 right-0 w-56 ${cardBg} rounded-md shadow-lg border ${borderColor} py-1 px-2 text-xs`}>
+                  <div className="space-y-0.5 mb-1">
+                    <button
+                      className={`w-full text-left px-2 py-1 rounded-md ${dateRange === 'all' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100' : `${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}`}
+                      onClick={() => handleDateRangeChange('all')}
+                    >
+                      All Time
+                    </button>
+                    <button
+                      className={`w-full text-left px-2 py-1 rounded-md ${dateRange === 'today' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100' : `${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}`}
+                      onClick={() => handleDateRangeChange('today')}
+                    >
+                      Today
+                    </button>
+                    <button
+                      className={`w-full text-left px-2 py-1 rounded-md ${dateRange === 'yesterday' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100' : `${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}`}
+                      onClick={() => handleDateRangeChange('yesterday')}
+                    >
+                      Yesterday
+                    </button>
+                    <button
+                      className={`w-full text-left px-2 py-1 rounded-md ${dateRange === 'week' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100' : `${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}`}
+                      onClick={() => handleDateRangeChange('week')}
+                    >
+                      Last 7 Days
+                    </button>
+                    <button
+                      className={`w-full text-left px-2 py-1 rounded-md ${dateRange === 'month' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100' : `${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}`}
+                      onClick={() => handleDateRangeChange('month')}
+                    >
+                      Last 30 Days
+                    </button>
+                    <button
+                      className={`w-full text-left px-2 py-1 rounded-md ${dateRange === 'thisMonth' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100' : `${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}`}
+                      onClick={() => handleDateRangeChange('thisMonth')}
+                    >
+                      This Month
+                    </button>
+                    <button
+                      className={`w-full text-left px-2 py-1 rounded-md ${dateRange === 'year' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100' : `${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}`}
+                      onClick={() => handleDateRangeChange('year')}
+                    >
+                      This Year
+                    </button>
+                    <button
+                      className={`w-full text-left px-2 py-1 rounded-md ${dateRange === 'custom' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100' : `${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}`}
+                      onClick={() => handleDateRangeChange('custom')}
+                    >
+                      Custom Range
+                    </button>
             </div>
 
+                  {dateRange === 'custom' && (
+                    <div className="space-y-1">
+                      <div>
+                        <label className={`block text-xs font-medium ${textColor} mb-0.5`}>From</label>
+                        <input
+                          type="date"
+                          value={customDateRange.start || ''}
+                          onChange={(e) => setCustomDateRange({...customDateRange, start: e.target.value})}
+                          className={`w-full h-7 px-2 py-0.5 border ${borderColor} rounded-md text-xs ${isDarkMode ? 'bg-gray-700 text-white' : 'bg-white text-gray-900'}`}
+                        />
+                      </div>
+                      <div>
+                        <label className={`block text-xs font-medium ${textColor} mb-0.5`}>To</label>
+                        <input
+                          type="date"
+                          value={customDateRange.end || ''}
+                          onChange={(e) => setCustomDateRange({...customDateRange, end: e.target.value})}
+                          className={`w-full h-7 px-2 py-0.5 border ${borderColor} rounded-md text-xs ${isDarkMode ? 'bg-gray-700 text-white' : 'bg-white text-gray-900'}`}
+                        />
+                      </div>
+                      <div className="flex justify-end mt-1">
             <button 
-              onClick={handleClearFilters} 
-              className="h-10 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Reset
+                          className="h-6 px-2 py-0.5 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                          onClick={() => {
+                            handleDateRangeChange('custom');
+                            setShowDatePicker(false);
+                          }}
+                        >
+                          Apply
             </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
         
@@ -940,6 +1103,143 @@ const PDFArchive = () => {
             Showing {filteredDocs.length} document{filteredDocs.length !== 1 ? 's' : ''}
           </span>
         </div>
+        
+        {/* Filter Chips Row */}
+        {(searchQuery || dateRange !== 'all' || typeFilter !== 'all' || groupBy !== 'none' || sortBy !== 'date_desc' || showFavoritesOnly) && (
+          <div className="flex flex-wrap gap-1 mb-4">
+            {/* Active Filter Chips */}
+            {searchQuery && (
+              <div className={`flex items-center px-1.5 py-0.5 rounded-md text-xs bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300`}>
+                <span className="mr-1">🔍</span>
+                <span>Search: "{searchQuery}"</span>
+                <button 
+                  onClick={() => setSearchQuery('')}
+                  className="ml-1 text-green-500 hover:text-green-700 dark:text-green-400 dark:hover:text-green-200"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+            
+            {sortBy !== 'date_desc' && (
+              <div className={`flex items-center px-1.5 py-0.5 rounded-md text-xs bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300`}>
+                <span className="mr-1">⇅</span>
+                <span>Sort: {
+                  sortBy === 'date_asc' ? 'Oldest First' :
+                  sortBy === 'name_asc' ? 'Name (A-Z)' :
+                  sortBy === 'name_desc' ? 'Name (Z-A)' :
+                  sortBy === 'examiner_asc' ? 'Examiner (A-Z)' :
+                  sortBy === 'examiner_desc' ? 'Examiner (Z-A)' :
+                  'Custom'
+                }</span>
+                <button 
+                  onClick={() => setSortBy('date_desc')}
+                  className="ml-1 text-purple-500 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-200"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+            
+            {groupBy !== 'none' && (
+              <div className={`flex items-center px-1.5 py-0.5 rounded-md text-xs bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300`}>
+                <span className="mr-1">🔗</span>
+                <span>Grouped: {
+                  groupBy === 'examiner' ? 'By Examiner' :
+                  groupBy === 'department' ? 'By Department' :
+                  groupBy === 'type' ? 'By Type' :
+                  groupBy === 'month' ? 'By Month' :
+                  'Custom'
+                }</span>
+                <button 
+                  onClick={() => setGroupBy('none')}
+                  className="ml-1 text-amber-500 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-200"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+            
+            {typeFilter !== 'all' && (
+              <div className={`flex items-center px-1.5 py-0.5 rounded-md text-xs bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300`}>
+                <span className="mr-1">📄</span>
+                <span>Type: {
+                  typeFilter === 'individual' ? 'Individual Report' :
+                  typeFilter === 'history' ? 'Examiner Report' :
+                  typeFilter === 'merged' ? 'Merged Report' :
+                  'Custom'
+                }</span>
+                <button 
+                  onClick={() => setTypeFilter('all')}
+                  className="ml-1 text-indigo-500 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-200"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+            
+            {dateRange !== 'all' && (
+              <div className={`flex items-center px-1.5 py-0.5 rounded-md text-xs bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300`}>
+                <span className="mr-1">📅</span>
+                <span>Time: {
+                  dateRange === 'today' ? 'Today' :
+                  dateRange === 'yesterday' ? 'Yesterday' :
+                  dateRange === 'week' ? 'Last 7 Days' :
+                  dateRange === 'month' ? 'Last 30 Days' :
+                  dateRange === 'thisMonth' ? 'This Month' :
+                  dateRange === 'year' ? 'This Year' :
+                  dateRange === 'custom' && customDateRange.start && customDateRange.end ? 
+                    `${new Date(customDateRange.start).toLocaleDateString()} - ${new Date(customDateRange.end).toLocaleDateString()}` :
+                    'Custom Range'
+                }</span>
+                <button 
+                  onClick={() => {
+                    setDateRange('all');
+                    setCustomDateRange({ start: null, end: null });
+                  }}
+                  className="ml-1 text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-200"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+            
+            {showFavoritesOnly && (
+              <div className={`flex items-center px-1.5 py-0.5 rounded-md text-xs bg-yellow-50 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300`}>
+                <span className="mr-1">⭐</span>
+                <span>Showing Favorites Only</span>
+                <button 
+                  onClick={() => setShowFavoritesOnly(false)}
+                  className="ml-1 text-yellow-500 hover:text-yellow-700 dark:text-yellow-400 dark:hover:text-yellow-200"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+            
+            {/* Clear All Filters Button */}
+            {(searchQuery || dateRange !== 'all' || typeFilter !== 'all' || groupBy !== 'none' || sortBy !== 'date_desc' || showFavoritesOnly) && (
+              <button
+                onClick={handleClearFilters}
+                className={`flex items-center px-1.5 py-0.5 rounded-md text-xs text-gray-700 dark:text-gray-300 border ${borderColor} hover:bg-gray-100 dark:hover:bg-gray-700`}
+              >
+                Clear All Filters
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Main Content Area */}

@@ -65,6 +65,7 @@ const CalculationArchive = () => {
   const borderColor = isDarkMode ? 'border-gray-700' : 'border-gray-200';
   const buttonBg = isDarkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200';
   const smartToolbarBg = isDarkMode ? 'bg-gray-900' : 'bg-gray-50';
+  const hoverTransition = 'transition-all duration-300 ease-in-out';
 
   // Define fetchCalculations function outside of useEffect
   const fetchCalculations = async () => {
@@ -1551,18 +1552,40 @@ const CalculationArchive = () => {
   // Render calculation list
   const renderCalculationList = (calculations) => {
     return (
-      <div className="space-y-3">
+      <div>
+        <div className={`${cardBg} rounded-lg shadow overflow-hidden border ${borderColor}`}>
+          {/* Table header */}
+          <div className="overflow-x-auto">
+            <div className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              {/* Header row */}
+              <div className="bg-gray-50 dark:bg-gray-700">
+                <div className="grid grid-cols-12 gap-2">
+                  <div className="col-span-1 px-4 py-3 text-left">
+                    <span className="text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Fav</span>
+                  </div>
+                  <div className="col-span-3 px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Examiner
+                  </div>
+                  <div className="col-span-2 px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Date
+                  </div>
+                  <div className="col-span-2 hidden md:block px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Papers
+                  </div>
+                  <div className="col-span-2 px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Amount
+                  </div>
+                  <div className="col-span-2 px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Actions
+                  </div>
+                </div>
+              </div>
+
+              {/* Table body */}
+              <div className="divide-y divide-gray-200 dark:divide-gray-700">
         {calculations.map(calculation => (
-          <div key={calculation.id} className={`${cardBg} border ${borderColor} rounded-lg shadow-sm p-3`}>
-            <div className="flex flex-col md:flex-row justify-between">
-              <div className="flex items-center mb-2 md:mb-0">
-                <div className="flex space-x-2 mr-2">
-                  <input
-                    type="checkbox"
-                    checked={selectedCalculations.includes(calculation.id)}
-                    onChange={() => handleSelectCalculation(calculation.id)}
-                    className="h-3 w-3 text-blue-600 border-gray-300 rounded"
-                  />
+                  <div key={calculation.id} className={`grid grid-cols-12 gap-2 items-center py-2 ${hoverTransition} hover:bg-gray-50 dark:hover:bg-gray-750`}>
+                    <div className="col-span-1 px-4 flex items-center">
                   <button
                     onClick={() => handleToggleFavorite(calculation.id)}
                     className={`text-sm ${favoriteCalculations.includes(calculation.id) ? 'text-yellow-500' : 'text-gray-400 hover:text-yellow-500'}`}
@@ -1570,34 +1593,33 @@ const CalculationArchive = () => {
                     {favoriteCalculations.includes(calculation.id) ? '⭐' : '☆'}
                   </button>
                 </div>
-                <div>
-                  <h3 className={`text-sm font-medium ${textColor}`}>
+                    <div className="col-span-3 px-4">
+                      <div className={`text-sm font-medium ${textColor} truncate`}>
                     {calculation.examiner_name || "Unknown"}
-                  </h3>
-                  <div className="flex items-center mt-0.5">
-                    <span className={`text-xs ${secondaryText} mr-2`}>
+                      </div>
+                      <div className={`text-xs ${secondaryText}`}>
                       ID: {calculation.examiner_id || 'N/A'}
-                    </span>
-                    <span className={`text-xs ${secondaryText}`}>
+                      </div>
+                    </div>
+                    <div className="col-span-2 px-4">
+                      <div className={`text-sm ${textColor}`}>
                       {formatDate(calculation.calculation_date || calculation.created_at || new Date())}
-                    </span>
                   </div>
                 </div>
+                    <div className="col-span-2 hidden md:block px-4">
+                      <div className={`text-sm ${textColor}`}>
+                        {calculation.total_papers || 0} papers
               </div>
-              
-              <div className="flex flex-col md:flex-row items-start md:items-center gap-2">
-                <div className="flex flex-col items-end">
+                      <div className={`text-xs ${secondaryText}`}>
+                        {calculation.total_staff || calculation.staff_count || 0} staff
+                      </div>
+                    </div>
+                    <div className="col-span-2 px-4 text-right">
                   <div className={`text-sm font-medium ${textColor}`}>
                     ₹{(calculation.total_amount || calculation.final_amount || 0).toFixed(2)}
                   </div>
-                  <div className="flex items-center">
-                    <span className={`text-xs ${secondaryText}`}>
-                      Papers: {calculation.total_papers || 0} | Staff: {calculation.total_staff || calculation.staff_count || 0}
-                    </span>
                   </div>
-                </div>
-                
-                <div className="flex gap-1">
+                    <div className="col-span-2 px-4 flex items-center justify-center space-x-1">
                   <button 
                     onClick={() => navigate(`/calculations/view/${calculation.id}`, { 
                       state: { 
@@ -1605,31 +1627,38 @@ const CalculationArchive = () => {
                         fromCalculationArchive: true 
                       } 
                     })}
-                    className="flex items-center px-2 py-1 text-xs rounded-md bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-800/40"
+                        className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/20 transition-colors"
+                        title="View Details"
                   >
-                    <span className="mr-1">👁️</span> View Details
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
                   </button>
                   <button 
-                    onClick={() => toggleExpand(calculation.id)}
-                    className="flex items-center px-2 py-1 text-xs rounded-md bg-gray-50 text-gray-700 dark:bg-gray-700/50 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/70"
+                        onClick={() => handleDownloadPDF(calculation.id)}
+                        className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-green-600 hover:bg-green-100 dark:hover:bg-green-900/20 transition-colors"
+                        title="Download PDF"
                   >
-                    {expandedItems[calculation.id] ? 'Hide Details' : 'Show Details'}
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
                   </button>
                   <button
-                    onClick={() => handleDownloadPDF(calculation.id)}
-                    className="flex items-center px-2 py-1 text-xs rounded-md bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-800/40"
+                        onClick={() => toggleExpand(calculation.id)}
+                        className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                        title={expandedItems[calculation.id] ? "Hide Details" : "Show Details"}
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={expandedItems[calculation.id] ? "M5 15l7-7 7 7" : "M19 9l-7 7-7-7"} />
                     </svg>
                   </button>
-                </div>
-              </div>
             </div>
             
-            {/* Expanded details */}
+                    {/* Expanded details - full width row */}
             {expandedItems[calculation.id] && (
-              <div className={`mt-3 p-3 rounded-md bg-gray-50 dark:bg-gray-800 border ${borderColor}`}>
+                      <div className="col-span-12 px-4 pb-2">
+                        <div className={`p-3 rounded-md bg-gray-50 dark:bg-gray-800 border ${borderColor}`}>
                 <h4 className={`text-xs font-semibold ${textColor} mb-2`}>Calculation Details</h4>
                 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -1669,12 +1698,19 @@ const CalculationArchive = () => {
                         </li>
                       ))}
                     </ul>
+                            </div>
                   </div>
                 </div>
               </div>
             )}
           </div>
         ))}
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        {/* Pagination would go here */}
       </div>
     );
   };
@@ -1976,14 +2012,14 @@ const CalculationArchive = () => {
             
             {/* Filter Controls Group */}
             <div className="flex flex-wrap lg:flex-nowrap gap-2">
-              {/* Sort Options */}
-              <div className="flex items-center w-28 relative">
+              {/* Sort Options - Using PDF Archive style */}
+              <div className="relative">
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value)}
-                  className={`w-full h-8 px-8 py-1 pr-6 border ${borderColor} rounded-md text-xs ${isDarkMode ? 'bg-gray-700 text-white' : 'bg-white text-gray-900'} appearance-none`}
+                  className={`h-8 pl-3 pr-8 rounded-md appearance-none border ${borderColor} text-xs ${isDarkMode ? 'bg-gray-700 text-white' : 'bg-white text-gray-900'} focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
                 >
-                  <option value="date_desc">Newest First</option>
+                  <option value="date_desc">Sort</option>
                   <option value="date_asc">Oldest First</option>
                   <option value="amount_desc">Amount (High-Low)</option>
                   <option value="amount_asc">Amount (Low-High)</option>
@@ -1992,36 +2028,20 @@ const CalculationArchive = () => {
                   <option value="examiner_asc">Examiner (A-Z)</option>
                   <option value="examiner_desc">Examiner (Z-A)</option>
                 </select>
-                <div className="absolute pointer-events-none left-0 flex items-center h-full pl-2">
-                  <span className={`text-xs ${isDarkMode ? 'text-white' : 'text-gray-900'} font-medium`}>Sort</span>
-                </div>
-                <div className="absolute pointer-events-none right-0 flex items-center h-full pr-2">
-                  <svg className="h-4 w-4 text-gray-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                  </svg>
-                </div>
               </div>
               
-              {/* Group By Dropdown */}
-              <div className="flex items-center w-28 relative">
+              {/* Group By Dropdown - Using PDF Archive style */}
+              <div className="relative">
                 <select
                   value={groupBy}
                   onChange={(e) => setGroupBy(e.target.value)}
-                  className={`w-full h-8 px-8 py-1 pr-6 border ${borderColor} rounded-md text-xs ${isDarkMode ? 'bg-gray-700 text-white' : 'bg-white text-gray-900'} appearance-none`}
+                  className={`h-8 pl-3 pr-8 rounded-md appearance-none border ${borderColor} text-xs ${isDarkMode ? 'bg-gray-700 text-white' : 'bg-white text-gray-900'} focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
                 >
-                  <option value="none">None</option>
+                  <option value="none">Group By</option>
                   <option value="examiner">By Examiner</option>
                   <option value="department">By Department</option>
                   <option value="month">By Month</option>
                 </select>
-                <div className="absolute pointer-events-none left-0 flex items-center h-full pl-2">
-                  <span className={`text-xs ${isDarkMode ? 'text-white' : 'text-gray-900'} font-medium`}>Group By</span>
-                </div>
-                <div className="absolute pointer-events-none right-0 flex items-center h-full pr-2">
-                  <svg className="h-4 w-4 text-gray-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                  </svg>
-                </div>
               </div>
               
               {/* Date Range Picker */}
@@ -2125,39 +2145,14 @@ const CalculationArchive = () => {
             
             {/* Export Buttons */}
             <div className="flex gap-2">
-              {/* Export Dropdown */}
-              <div className="relative" ref={exportDropdownRef}>
+              {/* Direct Export Reports button */}
                 <button
                   className={`flex items-center justify-center h-8 px-2 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 w-28 text-xs whitespace-nowrap`}
-                  onClick={handleExportDropdownToggle}
+                onClick={handleMergedReportsExport}
                 >
                   <span className="mr-1">⬇️</span>
                   Export Reports
                 </button>
-                {/* Dropdown menu */}
-                {showExportDropdown && (
-                  <div className="absolute z-30 mt-1 right-0 w-64 bg-white dark:bg-gray-800 rounded-md shadow-lg border border-gray-200 dark:border-gray-700 py-2 text-xs">
-                    <div className="px-2 py-1 border-b border-gray-200 dark:border-gray-700">
-                      <h3 className="font-medium text-gray-800 dark:text-gray-200">Export Options</h3>
-                    </div>
-                    <div className="space-y-0.5 pt-1">
-                      <button
-                        className="w-full text-left px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center"
-                        onClick={() => {
-                          handleMergedReportsExport();
-                          setShowExportDropdown(false);
-                        }}
-                      >
-                        <span className="mr-2">📄</span>
-                        <div>
-                          <div className="font-medium">Merged Reports</div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">Download all as a merged PDF</div>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
               
               {/* Export to Excel */}
               <button

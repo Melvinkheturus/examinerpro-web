@@ -1,7 +1,6 @@
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../components/ui/theme-provider';
-import { ThemeSwitcher } from '../components/ui/theme-switcher';
 import { Menu } from 'lucide-react';
 
 const TopBar = ({ 
@@ -25,30 +24,28 @@ const TopBar = ({
     department = 'CONTROLLER OF EXAMINATIONS (COE)'
   } = collegeDetails;
   
-  // Use consistent logo size now that we don't show the page title
-  const logoSize = 'h-12 w-12';
+  // Make logo more prominent
+  const logoSize = isMobileView ? 'h-10 w-10' : 'h-12 w-12';
   
   return (
-    <div className={`${className} w-full border-b border-border px-4 py-2 relative z-20`} style={style}>
+    <div className={`${className} w-full border-b border-border px-2 sm:px-4 py-1.5 relative z-20`} style={style}>
       {/* Mobile menu button - only on mobile */}
       {isMobileView && (
         <button 
-          className="absolute left-4 top-1/2 transform -translate-y-1/2 p-2 rounded-md text-foreground z-30"
+          className="absolute left-2 top-1/2 transform -translate-y-1/2 p-1 rounded-md text-foreground z-30"
           onClick={onMobileMenuToggle}
           aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"}
         >
           {!isMobileMenuOpen && (
-            <Menu className="h-6 w-6" />
+            <Menu className="h-5 w-5" />
           )}
         </button>
       )}
       
-      {/* Single Centered Card with College Info */}
-      <div className={`flex flex-col items-center justify-center w-full py-2 ${isMobileView ? 'pl-8' : ''}`}>
-        {/* Top section with logo and college name */}
-        <div className="flex items-center justify-center mb-2">
-          {/* College Logo */}
-          <div className="flex-shrink-0 mr-4">
+      {/* Single row with all information */}
+      <div className={`flex items-center w-full ${isMobileView ? 'pl-6 sm:pl-8' : ''}`}>
+        {/* College Logo - More prominent */}
+        <div className="flex-shrink-0 mr-3">
             <img 
               src="/images/logo_gnc.png" 
               alt="Guru Nanak College Logo" 
@@ -56,22 +53,14 @@ const TopBar = ({
             />
           </div>
           
-          {/* College Name and Tagline */}
-          <div className="text-center">
-            <h2 className="text-lg md:text-xl font-bold leading-tight">{name}</h2>
-            <p className="text-xs text-muted-foreground leading-snug">{tagline}</p>
-          </div>
+        {/* College Info in a single line */}
+        <div className="flex flex-1 flex-wrap items-center justify-center text-center">
+          <h2 className="text-xs sm:text-sm font-bold">{name}</h2>
+          <span className="mx-1 text-[0.6rem] sm:text-xs text-muted-foreground">|</span>
+          <p className="text-[0.6rem] sm:text-xs text-muted-foreground">{tagline}</p>
+          <span className="mx-1 text-[0.6rem] sm:text-xs text-muted-foreground">|</span>
+          <p className="text-[0.6rem] sm:text-xs font-medium">{department}</p>
         </div>
-        
-        {/* Divider line and department section */}
-        <div className="w-full text-center border-t border-border pt-2 mt-1">
-          <p className="text-xs md:text-sm font-medium leading-tight">{department}</p>
-        </div>
-      </div>
-
-      {/* Theme Toggle Button - Position at the top right */}
-      <div className="absolute right-4 top-1/2 transform -translate-y-1/2">
-        <ThemeSwitcher />
       </div>
     </div>
   );

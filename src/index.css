@@ -136,3 +136,33 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* Export dropdown fixes */
+.export-dropdown-container {
+  position: relative;
+  display: inline-block;
+}
+
+.export-dropdown-container .absolute {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 30;
+  margin-top: 0.25rem;
+}
+
+/* Responsive toolbar fixes */
+@media (max-width: 768px) {
+  .export-dropdown-container {
+    width: 100%;
+    margin-bottom: 0.5rem;
+  }
+  
+  /* Ensure dropdowns don't overflow on mobile */
+  .export-dropdown-container .absolute {
+    width: 100%;
+    max-width: 100%;
+    left: 0;
+    right: 0;
+  }
+}
